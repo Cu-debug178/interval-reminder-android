@@ -1,4 +1,4 @@
-# Interval Reminder for Android 0.3.0
+# Interval Reminder for Android 0.3.1
 
 [简体中文文档](README.md)
 
@@ -7,12 +7,12 @@ An offline, native Android app for interval-based task reminders, photo-based vo
 ## How It Works
 
 1. On the home screen, open **Photo Import / Review Draft**. Take a photo or choose an image, then rotate, crop, and run offline OCR.
-2. Correct the recognized text and create vocabulary cards. English, Chinese definitions, and example sentences can be edited independently. Example sentences may be left blank.
-3. Drafts are saved when moving between cards or leaving the editor. Saving a word group creates a separate review task.
+2. Choose **Quick confirmation** or **Detailed editing** after creating the cards. Quick confirmation presents one normal vocabulary card at a time: confirm a correct card to continue, or choose **Has an issue** to edit it and return to that card after saving. Detailed editing retains the original direct-edit and previous/next workflow. English, Chinese definitions, and examples can be edited independently; examples may be blank.
+3. Name the group after proofreading to create a separate review task. Drafts are saved when leaving the editor.
 4. Start a review session, recall the answer before revealing it, then mark the card **Remembered** or **Review again**. Missed cards return after a few cards, with at most three appearances per card in one session.
 5. Confirm **Complete this session** after reviewing all cards to advance the task to its next reminder stage. Revealing an answer alone does not advance the schedule.
 
-The built-in **Lesson 1** draft contains 42 cards manually transcribed from two user-provided photos. It is not an OCR accuracy demonstration and should still be proofread. The original photos are available from the editor. The initial version does not generate definitions, examples, or phonetic transcriptions automatically.
+The built-in **Lesson 1** draft contains 42 cards manually transcribed from two user-provided photos. It is not an OCR accuracy demonstration. Quick confirmation reduces the number of editing steps; it does not establish that OCR output is error-free. Original photos are available during proofreading. The initial version does not generate definitions, examples, or phonetic transcriptions automatically.
 
 ## Review Settings
 
@@ -57,7 +57,7 @@ The APK is signed with a local development key. **Never commit `build/release.ke
 
 ## Download APK
 
-The packaged Android APK and its SHA-256 checksum are published under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases). The current version is 0.3.0. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+The packaged Android APK and its SHA-256 checksum are published under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases). The current source version is 0.3.1. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
 

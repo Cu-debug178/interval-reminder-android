@@ -28,7 +28,12 @@ public final class ImportActivity extends ScreenActivity {
         ui.body.addView(ui.button("打开 Lesson 1 待校对词组",false,v->{new AlertDialog.Builder(this).setTitle("打开 Lesson 1？").setMessage("将用你提供的两页照片整理出的 42 张卡替换当前草稿，不影响已经创建的任务。此词表为人工整理，仍请校对。").setNegativeButton("取消",null).setPositiveButton("打开",(d,w)->{try{Words.lesson(this);edit();}catch(Exception e){ui.toast(e.getMessage());}}).show();}));
         ui.gap(ui.body,10);ui.body.addView(ui.button("手动添加一组单词",false,v->edit()));ui.gap(ui.body,18);ui.body.addView(ui.text("照片仅在设备上识别和保存。识别结果需要校对，不会自动补写释义或例句。",13,WordUi.MUTED));Motion.enter(ui.body);
     }
-    private void edit(){Motion.open(this,new Intent(this,WordEditorActivity.class));}
+    private void edit(){
+        String[] modes={"快速确认（推荐）","逐项编辑（原校对方式）"};
+        new AlertDialog.Builder(this).setTitle("选择校对方式").setItems(modes,(dialog,which)->
+                Motion.open(this,new Intent(this,WordEditorActivity.class).putExtra("quickReview",which==0)))
+                .show();
+    }
     private File newPhoto(String prefix) throws IOException {File folder=new File(getFilesDir(),"photos");if(!folder.exists()&&!folder.mkdirs())throw new IOException("无法保存照片");return new File(folder,prefix+UUID.randomUUID()+".jpg");}
     private void camera(){try{cameraPhoto=newPhoto("capture-");Uri uri=PhotoProvider.uri(cameraPhoto);Intent capture=new Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT,uri).addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);capture.setClipData(ClipData.newRawUri("照片",uri));startActivityForResult(capture,11);}catch(Exception e){ui.toast("无法打开相机，可从相册选图："+e.getMessage());}}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(result!=RESULT_OK)return;
