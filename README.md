@@ -53,6 +53,10 @@
 
 原生 OCR：Tesseract4Android 4.9.0，内置英语及简体中文模型。复杂排版、手写、音标和低清照片可能产生大量错字；裁切与逐卡校对不能省略。首次识别会复制模型到私有目录。
 
+## 下载 APK
+
+已打包的 Android APK 和 SHA-256 校验值发布在 [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases)。当前版本为 0.3.0。APK 使用本地签名密钥签名；请勿将它与其他来源的同包名应用混装，后续升级需使用相同签名密钥。
+
 ## 本机构建
 
 ```bash

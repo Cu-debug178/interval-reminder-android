@@ -55,6 +55,10 @@ OCR uses Tesseract4Android 4.9.0 with bundled English and Simplified Chinese mod
 
 The APK is signed with a local development key. **Never commit `build/release.keystore` or share the signing key.** Keep the same key to upgrade an existing sideloaded installation; uninstalling the old app is not necessary and would erase private app data.
 
+## Download APK
+
+The packaged Android APK and its SHA-256 checksum are published under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases). The current version is 0.3.0. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+
 ## Build Locally
 
 ```bash
