@@ -1,0 +1,84 @@
+# 间隔提醒 Android 0.3.0
+
+[English documentation](README.en.md)
+
+离线原生 Android 应用，保留通用任务提醒，并新增照片录词、逐卡校对和快速复习。
+
+## 使用流程
+
+1. 主页进入“照片录词 / 校对草稿”。拍照或选图后，可旋转、裁切并离线识别。
+2. 修正识别原文后生成单词卡，英文、中文释义和例句可以分别编辑。没有例句时保持空白。
+3. 上一张、下一张和离开校对页时保存草稿。保存词组后建立独立的复习任务。
+4. 点击任务的“开始复习”，先回想再显示答案，选择“记得”或“再看一次”。错词隔几张再次出现，每张每轮最多出现三次，避免无限循环。
+5. 全部看完后确认“完成本轮”，才推进提醒阶段；单次点击答案不会推进。
+
+“打开 Lesson 1 待校对词组”提供从用户两页照片人工整理的 42 张卡，**不是 OCR 自动识别准确率的展示**，仍需用户校对。原照片可在校对页查看。首版不自动生成释义、例句或音标。
+
+## 设置
+
+默认间隔：`5 分钟、30 分钟、12 小时、1 天、2 天、4 天、7 天`，第 8 轮默认 `14 天`，默认关闭。间隔均从上一轮实际完成时间计算。
+
+- “默认间隔”默认折叠，展开后可改动八个间隔，单位为分钟。
+- “自定义间隔”默认折叠，可继续追加或删除轮次，支持分钟、小时、天，最多追加 100 轮。
+- 快速复习支持英文优先、中文优先、随机正面，以及可选打乱词序。
+- 提醒时间改为开始/结束时间选择器，可添加多个时段并支持跨午夜；关闭“只在选择的时段内提醒”即全天提醒。
+- 首次启动会询问方便复习的时间、时段外到期时的处理方式，并检查通知及精确提醒权限。
+- 权限状态也可在设置页查看。当前 target SDK 28 版本不要求精确闹钟特殊授权；Android 13 及以上仍需在系统通知设置中开启通知。
+- 修改设置只影响新建任务，已有任务保留其间隔快照。
+- 设置页切换标签或返回时，未保存修改会弹出保存确认。
+
+## 动效
+
+使用 Android 原生属性动画、RippleDrawable 和 Transition，不引入网页或网络动画运行时。
+
+| 交互 | 实现 |
+| --- | --- |
+| 按钮 | 涟漪、轻压缩放，按下 70 ms、回弹 110 ms |
+| 页面进入及返回 | 短距离平移和透明度，160-180 ms |
+| 底部标签切换 | 内容退出 80 ms、进入 160 ms |
+| 词卡切换 | 短距离水平退出、下一卡进入，防止重复点击 |
+| 揭晓答案 | 预留布局中的原位显现，操作按钮不被挤动 |
+| 折叠间隔及增删行 | ChangeBounds 和 Fade 同时运行，170 ms |
+
+这些时间是本应用的设计取值，不是所谓“科学最佳速度”。应用内“界面动态效果”可关闭上述动画，也尊重系统动画时长缩放为零。主要操作目标至少 48-52 dp，底部导航每项约 80 x 60 dp。
+
+参考：
+- Android Views 动画指南：https://developer.android.com/develop/ui/views/animations/reveal-or-hide-view
+- Material Motion：https://m3.material.io/styles/motion/overview
+- Android 触控目标：https://developer.android.com/guide/topics/ui/accessibility/apps
+
+## 数据与权限
+
+正式 APK 不声明 INTERNET 权限。OCR、照片、任务、词卡及复习记录保存在应用私有目录，卸载或清除应用数据会删除它们。首版尚无数据导出功能。签名沿用 `build/release.keystore`，升级时不要卸载旧应用。
+
+原生 OCR：Tesseract4Android 4.9.0，内置英语及简体中文模型。复杂排版、手写、音标和低清照片可能产生大量错字；裁切与逐卡校对不能省略。首次识别会复制模型到私有目录。
+
+## 本机构建
+
+```bash
+./build_local.sh
+```
+
+产物：`build/interval-reminder-debug.apk`。脚本使用本机 Android Studio JBR、R8/D8，以及 `~/Android/local-tools` 中的 API 23/aapt/apksigner。也保留 Gradle 工程定义，但当前环境未验证在线 Gradle 构建。
+
+最低 Android 6.0，当前 target SDK 28，为本机离线构建和侧载使用，不代表符合 Google Play 当前发布要求。这个 Waydroid 系统镜像的硬件渲染会触发 SurfaceFlinger 物理显示查询崩溃，因此仅对设备名含 `waydroid` 的运行环境保留软件渲染；其他设备在窗口创建时开启硬件加速。
+
+## 测试
+
+- `tests/ScheduleTest.java`：提醒间隔与跨午夜时间窗。
+- `tests/CoreTest.java`：间隔验证、42 张卡、文本解析、打乱与有限次数重试。
+- `tests/native/`：独立 QA 包，不读取或覆盖正式应用的数据。
+
+```bash
+BUILD_DIR="$PWD/build-qa" MANIFEST_FILE="$PWD/tests/native/AndroidManifest.xml" \
+  TEST_JAVA_DIR="$PWD/tests/native/java" ./build_local.sh
+adb install --no-incremental -r build-qa/interval-reminder-debug.apk
+adb shell am instrument -w com.example.reviewreminder.qa/com.example.reviewreminder.NativeSmokeTest
+adb pull /sdcard/Android/data/com.example.reviewreminder.qa/files/qa/. tests/output/
+```
+
+原生布局截图以 360 dp、800 dp 宽度绘制，保存在 `tests/output`。截图不等于真实手机的动画帧率测试。真实手机相机调用、后台通知准点到达、重启后通知恢复、电池限制以及不同厂商系统兼容性需要后续实机验证。
+
+## 第三方组件
+
+见 `app/src/main/assets/THIRD_PARTY_NOTICES.txt` 和 `licenses/`。Lucide 图标从本机已有的官方 npm 包导出为 Android VectorDrawable，保留几何形状；`tools/import_icons.py` 可从随项目保留的 JSON 重新生成。

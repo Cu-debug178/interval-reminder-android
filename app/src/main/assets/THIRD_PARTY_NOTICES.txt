@@ -1,0 +1,33 @@
+Third-party components in Interval Reminder 0.2.0
+
+Tesseract4Android 4.9.0
+Copyright its respective authors and contributors. Apache License 2.0.
+https://github.com/adaptech-cz/Tesseract4Android
+Bundled unmodified classes.jar and native libraries from the standard 4.9.0 AAR.
+AAR SHA-256: bce5d6413a1a5ae3d7240033fbbc851ba3217d0a08d9769400e17a077f42cb2a
+License: licenses/Apache-2.0.txt
+
+Tesseract OCR and eng / chi_sim trained data
+Copyright Google and other contributors. Apache License 2.0.
+https://github.com/tesseract-ocr/tesseract
+https://github.com/tesseract-ocr/tessdata_fast
+Data models sourced from Ubuntu tesseract-ocr-eng / tesseract-ocr-chi-sim packages.
+Package copyright notices: licenses/tessdata-*-COPYRIGHT.txt
+
+Leptonica, libjpeg-turbo, libpng
+Native image libraries included by the above Tesseract4Android distribution.
+Copyright their respective authors and contributors.
+Leptonica: https://github.com/DanBloomberg/leptonica
+libjpeg-turbo: https://github.com/libjpeg-turbo/libjpeg-turbo
+libpng: https://www.libpng.org/pub/png/libpng.html
+Copyright/license texts retained in licenses/*-COPYRIGHT.txt.
+
+Lucide 1.8.0
+Copyright (c) 2026 Lucide Icons and Contributors.
+ISC License, with MIT notices for icons derived from Feather.
+https://github.com/lucide-icons/lucide
+Icons converted from official package geometry to Android VectorDrawable XML.
+License: licenses/Lucide-LICENSE.txt
+
+Lesson 1 photographs were supplied by the user for their local study workflow.
+The supplied word-card transcription is manually prepared and pending review.

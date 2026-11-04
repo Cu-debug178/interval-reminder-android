@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.reviewreminder" android:versionCode="3" android:versionName="0.3.0">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <application android:label="间隔提醒" android:icon="@drawable/ic_app" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:hardwareAccelerated="false" android:allowBackup="true">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+        <activity android:name=".ImportActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".WordEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".ReviewActivity" android:exported="false"/>
+        <provider android:name=".PhotoProvider" android:authorities="com.example.reviewreminder.photos" android:exported="false" android:grantUriPermissions="true"/>
+        <receiver android:name=".ReminderReceiver" android:exported="false" />
+        <receiver android:name=".RestoreReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/><action android:name="android.intent.action.TIME_SET"/><action android:name="android.intent.action.TIMEZONE_CHANGED"/></intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -1,0 +1,17 @@
+# Local build outputs and signing material
+/build/
+/build-qa/
+/.gradle/
+/local.properties
+*.apk
+*.apk.idsig
+*.keystore
+*.jks
+
+# Generated device QA screenshots and logs
+/tests/output/
+
+# Editor and OS files
+.DS_Store
+*.swp
+*.swo
