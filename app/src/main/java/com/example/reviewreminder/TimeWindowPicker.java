@@ -7,6 +7,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.ArrayList;
@@ -44,8 +45,8 @@ final class TimeWindowPicker {
             final Range range=ranges.get(i);LinearLayout card=new LinearLayout(activity);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(12),dp(8),dp(12),dp(12));card.setBackground(background(0xFFF8FBF9,18));
             LinearLayout heading=new LinearLayout(activity);heading.setGravity(Gravity.CENTER_VERTICAL);
             TextView label=new TextView(activity);label.setText("提醒时段 "+(i+1));label.setTextSize(14);label.setTextColor(WordUi.INK);heading.addView(label,new LinearLayout.LayoutParams(0,dp(44),1));
-            Button remove=new Button(activity);remove.setText("删除");remove.setTextSize(13);remove.setTextColor(WordUi.GREEN);remove.setContentDescription("删除时段 "+(i+1));remove.setAllCaps(false);remove.setMinWidth(dp(48));remove.setMinimumWidth(dp(48));remove.setMinHeight(dp(44));remove.setPadding(0,0,0,0);remove.setBackground(background(Color.WHITE,16));
-            UiIcons.apply(remove,WordUi.GREEN);remove.setText("");remove.setOnClickListener(v->{ranges.remove(range);render();notifyChanged();});Motion.press(remove);heading.addView(remove,new LinearLayout.LayoutParams(dp(52),dp(44)));card.addView(heading);
+            ImageButton remove=new ImageButton(activity);remove.setImageResource(R.drawable.ic_trash_2);remove.setColorFilter(WordUi.GREEN);remove.setContentDescription("删除时段 "+(i+1));remove.setScaleType(ImageButton.ScaleType.CENTER);remove.setPadding(dp(12),dp(12),dp(12),dp(12));remove.setBackground(background(Color.WHITE,16));
+            remove.setOnClickListener(v->{ranges.remove(range);render();notifyChanged();});Motion.press(remove);heading.addView(remove,new LinearLayout.LayoutParams(dp(52),dp(48)));card.addView(heading);
             LinearLayout times=new LinearLayout(activity);times.setGravity(Gravity.CENTER_VERTICAL);
             Button start=timeButton(range,range.start,true);Button end=timeButton(range,range.end,false);times.addView(start,new LinearLayout.LayoutParams(0,dp(50),1));
             TextView to=new TextView(activity);to.setText("至");to.setGravity(Gravity.CENTER);to.setTextSize(13);to.setTextColor(WordUi.MUTED);times.addView(to,new LinearLayout.LayoutParams(dp(34),dp(50)));
