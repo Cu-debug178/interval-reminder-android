@@ -1,4 +1,4 @@
-# Interval Reminder for Android 0.3.1
+# Interval Reminder for Android 0.4.1
 
 [简体中文文档](README.md)
 
@@ -21,10 +21,16 @@ The default schedule is 5 minutes, 30 minutes, 12 hours, 1 day, 2 days, 4 days, 
 - **Default intervals** is collapsed initially. Expand it to edit the eight intervals, which are stored in minutes.
 - **Custom intervals** is collapsed initially. Add or remove up to 100 additional rounds, using minutes, hours, or days.
 - Quick review can show English first, Chinese first, or a randomized side first. Word order can also be shuffled.
+- Home includes a collapsible list of fully completed tasks, filtered by today, the last 7 or 14 local calendar days, or older than 14 days.
+- The calendar shows the current next due date and actual completed review rounds, not predictions of later stages.
+- The profile page shows a 12-week heatmap of completed review rounds, not answer accuracy. Deleting a task removes its history from the statistics.
+- Automatic English speech, confirmation sounds, haptic feedback, and reminder sounds have independent settings. English is spoken only after it is visible; a working English TTS engine is required.
+- Review feedback uses Kenney CC0 sound effects; preview the two card actions in sound settings. Silent mode suppresses playback.
+- Audible reminders use system notification sounds, not a continuously ringing alarm. System notification channel, silent/Do Not Disturb, and battery settings can affect delivery and sound.
 - Reminder windows use start/end time pickers. Add multiple windows, including windows that cross midnight. Turn off **Only remind during selected windows** to allow reminders at any time.
 - On first launch, a setup guide asks when review is convenient, what to do when a review becomes due outside the selected windows, and shows notification-permission status.
 - Permission status and system settings entry points are also available in Settings. This build targets SDK 28 and does not require special exact-alarm access. Android 13 and later still require notifications to be enabled in system settings.
-- Settings changes apply to newly created tasks. Existing tasks retain their saved schedule and reminder-window snapshot.
+- Interval and reminder-window changes apply to new tasks; existing tasks retain their saved snapshots. Sound, speech and interaction settings apply to subsequent interactions.
 - Leaving Settings with unsaved changes prompts for confirmation.
 
 ## Motion and Accessibility
@@ -57,7 +63,7 @@ The APK is signed with a local development key. **Never commit `build/release.ke
 
 ## Download APK
 
-The packaged Android APK and its SHA-256 checksum are published under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases). The current source version is 0.3.1. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+Previous Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); that page may not yet include the current source version 0.4.1. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
 

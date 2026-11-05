@@ -36,13 +36,18 @@ final class Notifications {
         try{activity.startActivity(intent);}catch(Exception ignored){openAppDetails(activity);}
     }
     private static void openAppDetails(Activity activity){try{activity.startActivity(new Intent("android.settings.APPLICATION_DETAILS_SETTINGS").setData(Uri.parse("package:"+activity.getPackageName())));}catch(Exception ignored){}}
-    private static void ensureChannel(Context context){
+    static String channel(Context context){return Store.prefs(context).getBoolean("reminderSound",true)?"reviews":"reviews_silent";}
+    static void ensureChannel(Context context){
         if(Build.VERSION.SDK_INT<26)return;
         try{
             Class<?> channelType=Class.forName("android.app.NotificationChannel");
-            Object channel=channelType.getConstructor(String.class,CharSequence.class,int.class).newInstance("reviews","复习提醒",3);
             NotificationManager manager=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);
-            NotificationManager.class.getMethod("createNotificationChannel",channelType).invoke(manager,channel);
+            Object audible=channelType.getConstructor(String.class,CharSequence.class,int.class).newInstance("reviews","复习提醒（有声）",3);
+            Object silent=channelType.getConstructor(String.class,CharSequence.class,int.class).newInstance("reviews_silent","复习提醒（静音）",3);
+            channelType.getMethod("setSound",Uri.class,Class.forName("android.media.AudioAttributes")).invoke(silent,null,null);
+            channelType.getMethod("enableVibration",boolean.class).invoke(silent,false);
+            NotificationManager.class.getMethod("createNotificationChannel",channelType).invoke(manager,audible);
+            NotificationManager.class.getMethod("createNotificationChannel",channelType).invoke(manager,silent);
         }catch(Exception ignored){}
     }
 }

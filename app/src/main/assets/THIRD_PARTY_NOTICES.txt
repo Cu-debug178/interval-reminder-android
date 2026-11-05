@@ -29,5 +29,13 @@ https://github.com/lucide-icons/lucide
 Icons converted from official package geometry to Android VectorDrawable XML.
 License: licenses/Lucide-LICENSE.txt
 
+Kenney Interface Sounds 1.0
+Created by Kenney; CC0 1.0 Universal.
+https://kenney.nl/assets/interface-sounds
+Source mirror: https://github.com/Calinou/kenney-interface-sounds
+feedback_known.wav: confirmation_001.wav; feedback_retry.wav: click_003.wav;
+feedback_complete.wav: confirmation_003.wav. Original audio is unmodified.
+https://creativecommons.org/publicdomain/zero/1.0/
+
 Lesson 1 photographs were supplied by the user for their local study workflow.
 The supplied word-card transcription is manually prepared and pending review.

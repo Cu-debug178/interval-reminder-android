@@ -7,7 +7,8 @@ final class UiIcons {
     private UiIcons() {}
     static void apply(Button button,int color){
         String text=button.getText().toString();int icon=0;
-        if(text.contains("拍摄"))icon=R.drawable.ic_camera;
+        if(text.contains("朗读"))icon=R.drawable.ic_volume_2;
+        else if(text.contains("拍摄"))icon=R.drawable.ic_camera;
         else if(text.contains("相册")||text.contains("照片录词")||text.contains("原照片"))icon=R.drawable.ic_image_plus;
         else if(text.contains("上一张")||text.contains("返回"))icon=R.drawable.ic_arrow_left;
         else if(text.contains("下一张"))icon=R.drawable.ic_arrow_right;

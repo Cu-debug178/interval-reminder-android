@@ -16,20 +16,14 @@ public final class ReminderReceiver extends BroadcastReceiver {
         if (t==null || t.optBoolean("done")) return;
         if (t.optLong("due")>System.currentTimeMillis()+1000) { Alarms.schedule(c,t); return; }
         NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (Build.VERSION.SDK_INT>=26) {
-            try {
-                Class<?> cls=Class.forName("android.app.NotificationChannel");
-                Object channel=cls.getConstructor(String.class,CharSequence.class,int.class).newInstance("reviews","复习提醒",3);
-                NotificationManager.class.getMethod("createNotificationChannel",cls).invoke(nm,channel);
-            } catch (Exception ignored) { }
-        }
+        Notifications.ensureChannel(c);
         Intent open=new Intent(c,MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi=PendingIntent.getActivity(c,(int)id,open,PendingIntent.FLAG_UPDATE_CURRENT | 0x04000000);
         Notification.Builder b=new Notification.Builder(c).setSmallIcon(android.R.drawable.ic_popup_reminder)
                 .setContentTitle(t.optString("title")).setContentText("第 "+(t.optInt("stage")+1)+" 次复习到时间了")
-                .setContentIntent(pi).setAutoCancel(true).setDefaults(Notification.DEFAULT_ALL);
+                .setContentIntent(pi).setAutoCancel(true).setDefaults(Store.prefs(c).getBoolean("reminderSound",true)?Notification.DEFAULT_ALL:0);
         if (Build.VERSION.SDK_INT>=26) {
-            try { Notification.Builder.class.getMethod("setChannelId",String.class).invoke(b,"reviews"); } catch (Exception ignored) { }
+            try { Notification.Builder.class.getMethod("setChannelId",String.class).invoke(b,Notifications.channel(c)); } catch (Exception ignored) { }
         }
         nm.notify((int)id,b.build());
     }
