@@ -63,7 +63,7 @@ The APK is signed with a local development key. **Never commit `build/release.ke
 
 ## Download APK
 
-Previous Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); that page may not yet include the current source version 0.4.1. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.4.1. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
 
@@ -96,3 +96,7 @@ Native layout screenshots are drawn at 360 dp and 800 dp widths and written to `
 ## Third-Party Components
 
 See `app/src/main/assets/THIRD_PARTY_NOTICES.txt` and the bundled `licenses/` directory. Lucide icons are exported as Android VectorDrawables from the official npm package; the source icon JSON is retained in `vendor/lucide/icons.json`, and `tools/import_icons.py` can regenerate them.
+
+## License
+
+Project-owned code is available under the [0BSD license](LICENSE), permitting use, modification, and redistribution for any purpose, including commercial use. Third-party components and assets remain subject to their own licenses; user-provided textbook photographs and related textbook content are not covered by this license.

@@ -61,7 +61,7 @@
 
 ## 下载 APK
 
-历史 Android APK 和 SHA-256 校验值见 [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases)；该页面可能尚未包含当前源码版本 0.4.1。APK 使用本地签名密钥签名；请勿将它与其他来源的同包名应用混装，后续升级需使用相同签名密钥。
+Android APK 和 SHA-256 校验值见 [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases)，当前应用版本为 0.4.1。APK 使用本地签名密钥签名；请勿将它与其他来源的同包名应用混装，后续升级需使用相同签名密钥。
 
 ## 本机构建
 
@@ -92,3 +92,7 @@ adb pull /sdcard/Android/data/com.example.reviewreminder.qa/files/qa/. tests/out
 ## 第三方组件
 
 见 `app/src/main/assets/THIRD_PARTY_NOTICES.txt` 和 `licenses/`。Lucide 图标从本机已有的官方 npm 包导出为 Android VectorDrawable，保留几何形状；`tools/import_icons.py` 可从随项目保留的 JSON 重新生成。
+
+## 许可证
+
+项目自有代码采用 [0BSD 许可证](LICENSE)，允许免费或商业使用、修改和再分发。第三方组件及素材仍遵守其各自的许可证；用户提供的教材照片及相关教材内容不属于此许可证的授权范围。
