@@ -3,13 +3,14 @@ package com.example.reviewreminder;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.speech.tts.TextToSpeech;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.util.Locale;
 
 public final class ReviewActivity extends ScreenActivity {
     private WordUi ui;private long id,seed;private int expectedStage,mode,lastAutoSpoken=-1;private JSONArray words;private ReviewSession session;private boolean revealed,completed,changing,ttsReady,active=true;private String pendingSpeech;private TextToSpeech tts;private final Feedback interaction=new Feedback();private StringBuilder answers=new StringBuilder();private LinearLayout feedback;private View cardView;
@@ -22,7 +23,7 @@ public final class ReviewActivity extends ScreenActivity {
         if(value==null||value.trim().isEmpty())return;
         if(automatic)lastAutoSpoken=session.answered();
         pendingSpeech=value;
-        if(tts==null){tts=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS&&tts!=null){int language=tts.setLanguage(Locale.ENGLISH);ttsReady=language!=TextToSpeech.LANG_MISSING_DATA&&language!=TextToSpeech.LANG_NOT_SUPPORTED;if(ttsReady&&active&&pendingSpeech!=null){String pending=pendingSpeech;pendingSpeech=null;tts.speak(pending,TextToSpeech.QUEUE_FLUSH,null,"word");}}else if(!automatic)ui.toast("设备的英文朗读不可用");});}
+        if(tts==null){tts=new TextToSpeech(this,status->new Handler(Looper.getMainLooper()).post(()->{if(isFinishing()||isDestroyed())return;if(status==TextToSpeech.SUCCESS&&tts!=null){ttsReady=SpeechSettings.configure(tts,Store.prefs(this).getString("speechVoice",""),Store.prefs(this).getInt("speechRate",2));if(ttsReady&&active&&pendingSpeech!=null){String pending=pendingSpeech;pendingSpeech=null;tts.speak(pending,TextToSpeech.QUEUE_FLUSH,null,"word");}else if(!ttsReady&&!automatic)ui.toast("设备的英文朗读不可用");}else if(!automatic)ui.toast("设备的英文朗读不可用");}));}
         else if(ttsReady){pendingSpeech=null;tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"word");}
         else if(!automatic)ui.toast("朗读正在准备或设备缺少英文语音");
     }

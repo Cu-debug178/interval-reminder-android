@@ -384,6 +384,7 @@ public class MainActivity extends ScreenActivity {
         Switch motion=new Switch(this);motion.setText("界面动态效果");motion.setMinHeight(dp(52));motion.setChecked(Store.prefs(this).getBoolean("motion",true));content.addView(motion);gap(content,20);
         sectionTitle("声音与触感","");
         Switch autoSpeak=settingSwitch("显示英文时自动朗读","autoSpeak",true);
+        content.addView(button("朗读声音与语速",1,v->SpeechSettings.show(this)));
         Switch feedbackSound=settingSwitch("复习确认音效","feedbackSound",true);
         LinearLayout previews=row();LinearLayout.LayoutParams previewLeft=new LinearLayout.LayoutParams(0,dp(48),1);previewLeft.rightMargin=dp(8);previews.addView(button("试听：记得",1,v->interaction.preview(this,Feedback.KNOWN)),previewLeft);previews.addView(button("试听：再看一次",1,v->interaction.preview(this,Feedback.RETRY)),new LinearLayout.LayoutParams(0,dp(48),1));content.addView(previews);
         Switch haptic=settingSwitch("复习确认触感","haptic",true);

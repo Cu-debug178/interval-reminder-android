@@ -1,4 +1,4 @@
-# Interval Reminder for Android 0.4.1
+# Interval Reminder for Android 0.4.2
 
 [简体中文文档](README.md)
 
@@ -25,6 +25,7 @@ The default schedule is 5 minutes, 30 minutes, 12 hours, 1 day, 2 days, 4 days, 
 - The calendar shows the current next due date and actual completed review rounds, not predictions of later stages.
 - The profile page shows a 12-week heatmap of completed review rounds, not answer accuracy. Deleting a task removes its history from the statistics.
 - Automatic English speech, confirmation sounds, haptic feedback, and reminder sounds have independent settings. English is spoken only after it is visible; a working English TTS engine is required.
+- Choose and preview English voices offered by the system engine and select one of five speech rates (default 0.85x). Availability depends on the engine; some voices require a network, and unavailable voices fall back to the default. Reopen the dialog after changing system speech settings.
 - Review feedback uses Kenney CC0 sound effects; preview the two card actions in sound settings. Silent mode suppresses playback.
 - Audible reminders use system notification sounds, not a continuously ringing alarm. System notification channel, silent/Do Not Disturb, and battery settings can affect delivery and sound.
 - Reminder windows use start/end time pickers. Add multiple windows, including windows that cross midnight. Turn off **Only remind during selected windows** to allow reminders at any time.
@@ -63,7 +64,7 @@ The APK is signed with a local development key. **Never commit `build/release.ke
 
 ## Download APK
 
-Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.4.1. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.4.2. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
 
