@@ -10,6 +10,7 @@ import android.view.View;
 
 final class Feedback {
     static final int KNOWN=0, RETRY=1, COMPLETE=2;
+    private static final long MAX_PENDING_PLAY_DELAY_MS=100;
     private SoundPool pool;
     private final int[] sounds=new int[3];
     private final boolean[] loaded=new boolean[3];
@@ -25,7 +26,7 @@ final class Feedback {
             pool.setOnLoadCompleteListener((source,id,status)->{
                 for(int i=0;i<sounds.length;i++)if(sounds[i]==id){
                     loaded[i]=status==0;
-                    if(pending==i){pending=-1;if(loaded[i]&&SystemClock.elapsedRealtime()-pendingAt<500)source.play(id,0.55f,0.55f,1,0,1);}
+                    if(pending==i){pending=-1;if(loaded[i]&&SystemClock.elapsedRealtime()-pendingAt<MAX_PENDING_PLAY_DELAY_MS)source.play(id,0.55f,0.55f,1,0,1);}
                     break;
                 }
             });
@@ -35,9 +36,12 @@ final class Feedback {
         } catch(RuntimeException ignored) { release(); }
     }
     void confirm(View view){respond(view,COMPLETE);}
+    void reveal(View view){
+        if(Store.prefs(view.getContext()).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+    }
     void respond(View view,int kind){
         Context context=view.getContext();
-        if(Store.prefs(context).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+        if(Store.prefs(context).getBoolean("haptic",true))view.performHapticFeedback(kind==RETRY?HapticFeedbackConstants.LONG_PRESS:HapticFeedbackConstants.VIRTUAL_KEY);
         if(Store.prefs(context).getBoolean("feedbackSound",true))play(context,kind);
     }
     void preview(Context context,int kind){play(context,kind);}

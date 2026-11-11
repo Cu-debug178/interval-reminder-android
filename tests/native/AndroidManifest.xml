@@ -1,5 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.reviewreminder.qa" android:versionCode="1" android:versionName="0.2.0-qa">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.reviewreminder.qa" android:versionCode="1" android:versionName="0.5.0-qa">
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application android:label="间隔提醒测试" android:usesCleartextTraffic="true" android:hardwareAccelerated="false" android:icon="@drawable/ic_app" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name="com.example.reviewreminder.QaLauncher" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
@@ -8,6 +9,12 @@
         <activity android:name="com.example.reviewreminder.ImportActivity" android:exported="false"/>
         <activity android:name="com.example.reviewreminder.WordEditorActivity" android:exported="false"/>
         <activity android:name="com.example.reviewreminder.ReviewActivity" android:exported="false"/>
+        <activity android:name="com.example.reviewreminder.SpellingActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.ExampleActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.WrongBookActivity" android:exported="false"/>
+        <activity android:name="com.example.reviewreminder.CreateActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.SenseQuizActivity" android:exported="false"/>
+        <provider android:name="com.example.reviewreminder.PhotoProvider" android:authorities="com.example.reviewreminder.qa.photos" android:exported="false" android:grantUriPermissions="true"/>
         <receiver android:name="com.example.reviewreminder.ReminderReceiver" android:exported="false"/>
     </application>
     <instrumentation android:name="com.example.reviewreminder.NativeSmokeTest" android:targetPackage="com.example.reviewreminder.qa"/>

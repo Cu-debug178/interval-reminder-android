@@ -1,18 +1,16 @@
-# Interval Reminder for Android 0.4.2
+# Interval Reminder for Android 0.5.0
 
 [简体中文文档](README.md)
 
-An offline, native Android app for interval-based task reminders, photo-based vocabulary entry, card-by-card proofreading, and quick review.
+A native Android app for interval reminders, text/AI vocabulary import, card-by-card proofreading, quick review, and optional AI study tools (DeepSeek / Xiaomi MiMo / custom OpenAI-compatible endpoints).
 
 ## How It Works
 
-1. On the home screen, open **Photo Import / Review Draft**. Take a photo or choose an image, then rotate, crop, and run offline OCR.
-2. Choose **Quick confirmation** or **Detailed editing** after creating the cards. Quick confirmation presents one normal vocabulary card at a time: confirm a correct card to continue, or choose **Has an issue** to edit it and return to that card after saving. Detailed editing retains the original direct-edit and previous/next workflow. English, Chinese definitions, and examples can be edited independently; examples may be blank.
-3. Name the group after proofreading to create a separate review task. Drafts are saved when leaving the editor.
-4. Start a review session, recall the answer before revealing it, then mark the card **Remembered** or **Review again**. Missed cards return after a few cards, with at most three appearances per card in one session.
-5. Confirm **Complete this session** after reviewing all cards to advance the task to its next reminder stage. Revealing an answer alone does not advance the schedule.
-
-The built-in **Lesson 1** draft contains 42 cards manually transcribed from two user-provided photos. It is not an OCR accuracy demonstration. Quick confirmation reduces the number of editing steps; it does not establish that OCR output is error-free. Original photos are available during proofreading. The initial version does not generate definitions, examples, or phonetic transcriptions automatically.
+1. On the home screen, open **Import / Review Draft**. Capture or pick a photo for cloud recognition (Xiaomi MiMo vision recommended), paste a list for AI structuring, use local parsing or manual entry, or open the built-in Lesson 1 set.
+2. Choose **Quick confirmation** or **Detailed editing**, then name the group to create a review task.
+3. During review, mark **Remembered** or **Forgotten**. Remembered raises mastery; forgotten words go to the Wrong Book and lower mastery.
+4. After a round, optionally flip direction without advancing the schedule, or complete the round to advance reminders.
+5. Configure an API key under **Profile > AI** for review-linked tools (examples, wrong-word analysis, scenarios, session recaps). Sentence practice lives under Profile. Use MiMo for photo recognition; DeepSeek works for text. AI is off by default.
 
 ## Review Settings
 
@@ -24,15 +22,18 @@ The default schedule is 5 minutes, 30 minutes, 12 hours, 1 day, 2 days, 4 days, 
 - Home includes a collapsible list of fully completed tasks, filtered by today, the last 7 or 14 local calendar days, or older than 14 days.
 - The calendar shows the current next due date and actual completed review rounds, not predictions of later stages.
 - The profile page shows a 12-week heatmap of completed review rounds, not answer accuracy. Deleting a task removes its history from the statistics.
+- **Wrong Book** lists missed words by task. Choosing **Forgotten** or misspelling a word records another error and the review round; repeated errors in one round increase the count, while that round is listed only once.
+- After each review, choose to spell every word in the current task, only its words already in the Wrong Book, or none. The first choice is saved as the default. Change it under **Profile > Review & Spelling**, or enable asking after every round. If there are no wrong-book words to spell, the empty exercise is skipped.
+- Under **Review & Spelling**, optionally add the current session's forgotten words to spelling even when the default is none. Another switch opens a skippable, word-by-word example editor after review for forgotten words that still have no example.
 - Automatic English speech, confirmation sounds, haptic feedback, and reminder sounds have independent settings. English is spoken only after it is visible; a working English TTS engine is required.
 - Choose and preview English voices offered by the system engine and select one of five speech rates (default 0.85x). Availability depends on the engine; some voices require a network, and unavailable voices fall back to the default. Reopen the dialog after changing system speech settings.
-- Review feedback uses Kenney CC0 sound effects; preview the two card actions in sound settings. Silent mode suppresses playback.
+- Review feedback uses Kenney CC0 sound effects; preview the **Remembered** and **Forgotten** sounds in settings. The forgotten action has a more distinct haptic response. Haptics and sounds can be disabled separately, and silent mode suppresses audio.
 - Audible reminders use system notification sounds, not a continuously ringing alarm. System notification channel, silent/Do Not Disturb, and battery settings can affect delivery and sound.
 - Reminder windows use start/end time pickers. Add multiple windows, including windows that cross midnight. Turn off **Only remind during selected windows** to allow reminders at any time.
 - On first launch, a setup guide asks when review is convenient, what to do when a review becomes due outside the selected windows, and shows notification-permission status.
 - Permission status and system settings entry points are also available in Settings. This build targets SDK 28 and does not require special exact-alarm access. Android 13 and later still require notifications to be enabled in system settings.
 - Interval and reminder-window changes apply to new tasks; existing tasks retain their saved snapshots. Sound, speech and interaction settings apply to subsequent interactions.
-- Leaving Settings with unsaved changes prompts for confirmation.
+- Settings are grouped into categories and saved automatically when leaving a category or switching bottom-navigation pages. Returning to the settings directory and exiting the app shows a confirmation that can be suppressed.
 
 ## Motion and Accessibility
 
@@ -56,23 +57,33 @@ References:
 
 ## Data and Permissions
 
-The release manifest does not request the `INTERNET` permission. OCR, photos, tasks, cards, and review history are stored in the app's private directory. Uninstalling the app or clearing its data removes them. The initial version does not include data export.
-
-OCR uses Tesseract4Android 4.9.0 with bundled English and Simplified Chinese models. Handwriting, complex layouts, phonetic symbols, and low-resolution images can produce recognition errors; cropping and manual proofreading remain necessary. Models are copied to private storage on first use.
+The app declares `INTERNET` and only uses the network when AI is enabled and you trigger a request. API keys, tasks, cards, and review history stay in private app storage. Uninstalling or clearing app data removes them.
 
 The APK is signed with a local development key. **Never commit `build/release.keystore` or share the signing key.** Keep the same key to upgrade an existing sideloaded installation; uninstalling the old app is not necessary and would erase private app data.
 
 ## Download APK
 
-Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.4.2. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.5.0. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
+
+Open the project root, `~/AndroidStudioProjects/IntervalReminder`, in Android Studio. The UI is built programmatically in Java, so the layout editor does not render the complete screens. Start the `IntervalReminder_API_35` virtual device in Device Manager and use Run to inspect the actual UI and interactions.
+
+This machine's Android Studio uses JBR 25, while this project uses Android Gradle Plugin 8.6.1 with Gradle 8.7. In Android Studio, set `Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK` to JDK 21 at `/home/cudebug/.local/share/JetBrains/Toolbox/apps/intellij-idea-2/jbr`. Other development machines should use JDK 17 or 21.
+
+```bash
+./gradlew assembleDebug
+```
+
+Android Studio Run builds and deploys a debug variant for preview; it is not a release APK. Review the screens and flows on the emulator first, then create, sign, or publish a distributable APK after approval.
+
+The legacy offline build script is retained:
 
 ```bash
 ./build_local.sh
 ```
 
-The output is `build/interval-reminder-debug.apk`. The script uses Android Studio's JBR, R8/D8, and a local Android tools bundle laid out under `~/Android/local-tools`. The Gradle project is also included, but an online Gradle build has not been verified. The local script is environment-specific and expects the Android 23 platform and the tools bundle's `aapt` and `apksigner` files.
+The output is `build/interval-reminder-debug.apk`. The script uses Android Studio's JBR, R8/D8, and a local Android tools bundle laid out under `~/Android/local-tools`. It expects the Android 23 platform and the tools bundle's `aapt` and `apksigner` files.
 
 Minimum Android version: 6.0 (API 23). The app currently targets SDK 28 for local sideloading; this should not be taken as evidence that it meets current Google Play publishing requirements. On the tested Waydroid image, hardware rendering can crash SurfaceFlinger during physical-display queries, so software rendering is used only when the device name contains `waydroid`; other devices enable hardware acceleration when creating windows.
 

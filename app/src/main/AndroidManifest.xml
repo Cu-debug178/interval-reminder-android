@@ -1,5 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.reviewreminder" android:versionCode="7" android:versionName="0.4.2">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.reviewreminder" android:versionCode="8" android:versionName="0.5.0">
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -10,6 +11,11 @@
         <activity android:name=".ImportActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".WordEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".ReviewActivity" android:exported="false"/>
+        <activity android:name=".SpellingActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".ExampleActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".WrongBookActivity" android:exported="false"/>
+        <activity android:name=".CreateActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".SenseQuizActivity" android:exported="false"/>
         <provider android:name=".PhotoProvider" android:authorities="com.example.reviewreminder.photos" android:exported="false" android:grantUriPermissions="true"/>
         <receiver android:name=".ReminderReceiver" android:exported="false" />
         <receiver android:name=".RestoreReceiver" android:exported="true">

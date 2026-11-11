@@ -23,11 +23,24 @@ public final class Words {
         File f=new File(c.getFilesDir(),"word-draft.json");return f.exists()?new JSONObject(read(new FileInputStream(f))):new JSONObject().put("title","").put("words",new JSONArray()).put("photos",new JSONArray());
     }
     public static void clearDraft(Context c){new File(c.getFilesDir(),"word-draft.json").delete();}
+    public static boolean hasDraft(Context c){
+        File f=new File(c.getFilesDir(),"word-draft.json");
+        if(!f.exists())return false;
+        try{
+            JSONObject draft=new JSONObject(read(new FileInputStream(f)));
+            JSONArray words=draft.optJSONArray("words");
+            if(words==null)return false;
+            for(int i=0;i<words.length();i++){
+                JSONObject word=words.optJSONObject(i);
+                if(word!=null&&!word.optString("english","").trim().isEmpty())return true;
+            }
+            return false;
+        }catch(Exception e){return false;}
+    }
     public static void lesson(Context c) throws Exception {
-        JSONObject d=new JSONObject().put("title","Lesson 1").put("source","人工从用户提供的两页照片整理，待校对；不是 OCR 结果");
+        JSONObject d=new JSONObject().put("title","Lesson 1").put("source","内置 Lesson 1 词表，待校对");
         d.put("words",array(WordParser.parse(read(c.getAssets().open("lesson1/words.tsv")))));
-        JSONArray photos=new JSONArray();File folder=new File(c.getFilesDir(),"photos");folder.mkdirs();
-        for(int i=1;i<=2;i++){File to=new File(folder,"lesson1-page"+i+".jpg");if(!to.exists())try(InputStream in=c.getAssets().open("lesson1/page"+i+".jpg");OutputStream out=new FileOutputStream(to)){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);}photos.put(to.getAbsolutePath());}
-        d.put("photos",photos);writeDraft(c,d);
+        d.put("photos",new JSONArray());
+        writeDraft(c,d);
     }
 }

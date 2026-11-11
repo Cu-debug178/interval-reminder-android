@@ -38,8 +38,8 @@ final class SpeechSettings {
         status=new TextView(activity);status.setText("正在读取设备语音…");form.addView(status);
         TextView rateLabel=new TextView(activity);rateLabel.setText("朗读速度");rateLabel.setPadding(0,(int)(14*d),0,0);form.addView(rateLabel);
         rate=new Spinner(activity);rate.setMinimumHeight((int)(48*d));rate.setAdapter(new ArrayAdapter<>(activity,android.R.layout.simple_spinner_dropdown_item,RATE_LABELS));rate.setSelection(rateIndex(Store.prefs(activity).getInt("speechRate",2)));form.addView(rate);
-        Button preview=new Button(activity);preview.setText("试听：remember");preview.setMinHeight((int)(48*d));preview.setOnClickListener(v->preview());form.addView(preview);
-        Button system=new Button(activity);system.setText("系统语音引擎设置");system.setMinHeight((int)(48*d));system.setOnClickListener(v->{try{activity.startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(Exception e){toast("请在系统设置中打开文字转语音设置");}});form.addView(system);
+        Button preview=new Button(activity);preview.setText("试听：remember");preview.setMinHeight((int)(48*d));preview.setOnClickListener(v->preview());Motion.press(preview);form.addView(preview);
+        Button system=new Button(activity);system.setText("系统语音引擎设置");system.setMinHeight((int)(48*d));system.setOnClickListener(v->{try{activity.startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(Exception e){toast("请在系统设置中打开文字转语音设置");}});Motion.press(system);form.addView(system);
         dialog=new AlertDialog.Builder(activity).setTitle("朗读声音与语速").setView(form).setNegativeButton("取消",null).setPositiveButton("保存",null).create();
         dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button->{
             int selected=voices.getSelectedItemPosition();

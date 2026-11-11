@@ -1,8 +1,12 @@
 # Local build outputs and signing material
 /build/
 /build-qa/
+/app/build/
 /.gradle/
 /local.properties
+/.idea/
+/.externalNativeBuild/
+/.cxx/
 *.apk
 *.apk.idsig
 *.keystore
@@ -15,3 +19,9 @@
 .DS_Store
 *.swp
 *.swo
+
+# Local API keys / secrets — never commit
+*.local.env
+.ai-keys*
+/secrets/
+**/ai-keys.local.env

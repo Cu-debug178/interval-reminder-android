@@ -35,13 +35,14 @@ public class MainActivity extends ScreenActivity {
     private static final int LINE=Color.rgb(229,237,233), GOLD=Color.rgb(235,177,83);
     private LinearLayout root, content;
     private int currentPage=0;
+    private int settingsCategory=-1;
     private int completedFilter=0;
     private boolean completedExpanded=true;
     private long calendarDate=System.currentTimeMillis();
     private final Feedback interaction=new Feedback();
     private boolean changingPage;
     private interface Check { boolean get(); }
-    private Check settingsChanged,saveSettings;
+    private Check saveSettings;
     private boolean exactStateKnown,lastExactAllowed,setupRuleChosen;
     private AlertDialog setupDialog,permissionDialog;
     private LinearLayout setupContainer;
@@ -52,6 +53,8 @@ public class MainActivity extends ScreenActivity {
     private RadioGroup setupRule;
     private TextView setupNotificationStatus,setupExactStatus,permissionStatus;
     private TextView permissionExactStatus,settingsNotificationStatus,settingsExactStatus;
+    private CheckBox setupDontRemind;
+    private boolean setupDontShow;
 
     private int dp(float n) { return (int)(getResources().getDisplayMetrics().density*n+0.5f); }
     @Override public void onCreate(Bundle b) {
@@ -70,8 +73,8 @@ public class MainActivity extends ScreenActivity {
     private String notificationStatus(){return Notifications.enabled(this)?"通知权限：已开启":"通知权限：未开启，到期时不会显示系统通知";}
     private String exactStatus(){if(!Notifications.exactPermissionNeeded(this))return "精确提醒：当前应用版本无需额外授权";return Notifications.exactAllowed(this)?"精确提醒权限：已开启":"精确提醒权限：未开启，系统可能延迟提醒";}
     private void showSetupWizard(){
-        if(isFinishing()||setupDialog!=null&&setupDialog.isShowing())return;
-        setupStep=0;setupRuleChosen=false;setupWindows=Store.prefs(this).getString("windows","");setupRespectWindows=ReminderWindows.restricted(this);
+        if(isFinishing()||setupDialog!=null&&setupDialog.isShowing()||Store.prefs(this).getBoolean("dontShowSetup",false))return;
+        setupStep=0;setupRuleChosen=false;setupDontShow=false;setupWindows=Store.prefs(this).getString("windows","");setupRespectWindows=ReminderWindows.restricted(this);
         setupContainer=column();setupContainer.addView(setupPage());
         setupDialog=new AlertDialog.Builder(this).setTitle("设置你的提醒时间").setView(setupContainer).setNegativeButton("稍后设置",null).setPositiveButton("下一步",null).create();
         setupDialog.setOnShowListener(dialog->{setupDialog.getButton(-1).setOnClickListener(v->advanceSetup());setupDialog.getButton(-2).setOnClickListener(v->{if(setupStep==0)skipSetup();else{setupStep--;replaceSetupPage();setupDialog.setTitle("设置你的提醒时间");setupDialog.getButton(-1).setText(setupStep==2?"完成设置":"下一步");setupDialog.getButton(-2).setText(setupStep==0?"稍后设置":"上一步");}});});setupDialog.show();setupDialog.getButton(-1).setText("下一步");
@@ -83,6 +86,7 @@ public class MainActivity extends ScreenActivity {
         if(setupStep==0){
             TextView question=text("你每天什么时候方便复习？",19,INK);question.setTypeface(null,1);page.addView(question);gap(page,5);page.addView(text("可以添加多个时段。点击开始和结束时间，用系统时间选择器设置。",13,MUTED));gap(page,12);
             setupPicker=new TimeWindowPicker(this,setupWindows,()->{});page.addView(setupPicker.view());gap(page,8);page.addView(text("不添加时段表示全天都可以提醒。跨午夜时段也可以设置。",12,MUTED));
+            setupDontRemind=new CheckBox(this);setupDontRemind.setText("不再显示首次设置引导");setupDontRemind.setMinHeight(dp(48));setupDontRemind.setChecked(setupDontShow);setupDontRemind.setOnCheckedChangeListener((button,checked)->setupDontShow=checked);page.addView(setupDontRemind);
         }else if(setupStep==1){
             TextView question=text("如果复习到期时不在你选择的时段内，怎么办？",19,INK);question.setTypeface(null,1);page.addView(question);gap(page,10);
             setupRule=new RadioGroup(this);setupRule.setOrientation(RadioGroup.VERTICAL);RadioButton wait=new RadioButton(this);wait.setId(1);wait.setText("等到下一个可用时段再提醒");wait.setMinHeight(dp(56));RadioButton anytime=new RadioButton(this);anytime.setId(2);anytime.setText("全天都可提醒，不等待时段");anytime.setMinHeight(dp(56));setupRule.addView(wait);setupRule.addView(anytime);setupRule.check(setupRespectWindows?1:2);setupRule.setOnCheckedChangeListener((group,id)->setupRuleChosen=true);page.addView(setupRule);gap(page,8);page.addView(text("这项选择只影响之后新建的任务，不会改动已有任务。",12,MUTED));
@@ -101,12 +105,14 @@ public class MainActivity extends ScreenActivity {
             else{saveSetup(true);}
         }catch(Exception e){toast("时间设置无效："+e.getMessage());}
     }
-    private void saveSetup(boolean complete){if(!Store.prefs(this).edit().putString("windows",setupWindows).putBoolean("respectWindows",setupRespectWindows).putBoolean("setupComplete",complete).commit()){toast("设置未能保存，请重试");return;}if(setupDialog!=null)setupDialog.dismiss();setupNotificationStatus=null;setupExactStatus=null;render();}
-    private void skipSetup(){setupWindows=Store.prefs(this).getString("windows","");setupRespectWindows=ReminderWindows.restricted(this);saveSetup(true);}
+    private void saveSetup(boolean complete){if(!Store.prefs(this).edit().putString("windows",setupWindows).putBoolean("respectWindows",setupRespectWindows).putBoolean("setupComplete",complete).putBoolean("dontShowSetup",setupDontShow).commit()){toast("设置未能保存，请重试");return;}if(setupDialog!=null)setupDialog.dismiss();setupNotificationStatus=null;setupExactStatus=null;render();}
+    private void skipSetup(){setupWindows=Store.prefs(this).getString("windows","");setupRespectWindows=ReminderWindows.restricted(this);setupDontShow=setupDontRemind!=null&&setupDontRemind.isChecked();saveSetup(setupDontShow);}
     private void showPermissionGuide(){
+        if(Store.prefs(this).getBoolean("dontShowPermissionGuide",false))return;
         LinearLayout body=column();body.setPadding(dp(20),dp(2),dp(20),dp(4));permissionStatus=text(notificationStatus(),15,INK);body.addView(permissionStatus);body.addView(button("打开通知权限设置",1,v->Notifications.openNotifications(this)));gap(body,10);
         permissionExactStatus=text(exactStatus(),15,INK);body.addView(permissionExactStatus);if(Notifications.exactPermissionNeeded(this)&&!Notifications.exactAllowed(this))body.addView(button("打开精确提醒设置",1,v->Notifications.openExactAlarmSettings(this)));
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("提醒权限").setView(body).setPositiveButton("完成",null).show();permissionDialog=dialog;dialog.setOnDismissListener(d->{permissionStatus=null;permissionExactStatus=null;permissionDialog=null;});
+        CheckBox dontRemind=new CheckBox(this);dontRemind.setText("不再显示此权限说明");dontRemind.setMinHeight(dp(48));body.addView(dontRemind);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("提醒权限").setView(body).setPositiveButton("完成",null).create();dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(dontRemind.isChecked())Store.prefs(this).edit().putBoolean("dontShowPermissionGuide",true).apply();dialog.dismiss();}));dialog.show();permissionDialog=dialog;dialog.setOnDismissListener(d->{permissionStatus=null;permissionExactStatus=null;permissionDialog=null;});
     }
     private GradientDrawable shape(int color,float radius,int strokeColor,float stroke) {
         GradientDrawable d=new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radius));
@@ -128,7 +134,7 @@ public class MainActivity extends ScreenActivity {
         b.setOnClickListener(click); UiIcons.apply(b,style==0?Color.WHITE:FOREST);Motion.press(b); return b;
     }
     private void render() {
-        settingsChanged=null;saveSettings=null;
+        saveSettings=null;
         root=column(); root.setBackgroundColor(BG);
         ScrollView scroll=new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
         LinearLayout.LayoutParams scrollLp=new LinearLayout.LayoutParams(-1,0,1); root.addView(scroll,scrollLp);
@@ -167,12 +173,12 @@ public class MainActivity extends ScreenActivity {
         host.addView(glass,new LinearLayout.LayoutParams(-1,dp(72))); return host;
     }
     private void goPage(int page){
-        if(page==currentPage||changingPage)return;
-        if(currentPage==2&&settingsChanged!=null&&settingsChanged.get()){
-            new AlertDialog.Builder(this).setTitle("保存设置修改？").setNegativeButton("放弃修改",(d,w)->navigate(page)).setNeutralButton("继续编辑",null).setPositiveButton("保存并离开",(d,w)->{if(saveSettings.get())navigate(page);}).show();
-        }else navigate(page);
+        if(changingPage)return;
+        if(page==currentPage){if(page==2&&settingsCategory>=0)leaveSettingsCategory();return;}
+        if(currentPage==2&&settingsCategory>=0){if(saveSettings!=null&&!saveSettings.get())return;settingsCategory=-1;}
+        navigate(page);
     }
-    private void navigate(int page){int direction=page>currentPage?1:-1;changingPage=true;Motion.leave(content,direction,()->{if(isFinishing()||isDestroyed())return;currentPage=page;render();Motion.enter(content,direction);changingPage=false;});}
+    private void navigate(int page){int direction=page>currentPage?1:-1;changingPage=true;Motion.leave(content,direction,()->{if(isFinishing()||isDestroyed())return;currentPage=page;if(page!=2)settingsCategory=-1;render();Motion.enter(content,direction);changingPage=false;});}
     private final class IconView extends View {
         private final int type,color; private final Paint p=new Paint(3);
         IconView(int type,int color){super(MainActivity.this);this.type=type;this.color=color;setContentDescription(type==0?"主页图标":type==1?"已完成图标":"设置图标");}
@@ -210,7 +216,7 @@ public class MainActivity extends ScreenActivity {
         actions.addView(button("新建任务",0,v->create()),new LinearLayout.LayoutParams(0,dp(54),1));
         LinearLayout.LayoutParams settingLp=new LinearLayout.LayoutParams(0,dp(54),1);settingLp.leftMargin=dp(10);
         actions.addView(button("提醒设置",2,v->goPage(2)),settingLp);content.addView(actions);gap(content,20);
-        content.addView(button("照片录词 / 校对草稿",1,v->Motion.open(this,new Intent(this,ImportActivity.class))));gap(content,16);
+        content.addView(button("录词 / 校对草稿",1,v->Motion.open(this,new Intent(this,ImportActivity.class))));gap(content,16);
         if(!Notifications.enabled(this)){
             LinearLayout warning=column();warning.setPadding(dp(15),dp(13),dp(15),dp(13));warning.setBackground(shape(0xFFFFF2D8,16,0,0));
             TextView w=text("通知尚未开启",14,Color.rgb(133,81,17));w.setTypeface(null,1);warning.addView(w);warning.addView(text("开启后，复习到期时才能显示系统提醒。",13,Color.rgb(133,81,17)));
@@ -266,13 +272,15 @@ public class MainActivity extends ScreenActivity {
     private void addTask(JSONObject task,boolean completed) {
         long id=task.optLong("id"); int stage=task.optInt("stage"); JSONArray intervals=task.optJSONArray("intervals");
         long due=task.optLong("due"); boolean overdue=!completed&&due<=System.currentTimeMillis();
-        LinearLayout card=column();card.setPadding(dp(16),dp(15),dp(16),dp(14));card.setBackground(shape(SURFACE,19,LINE,1));
+        LinearLayout card=column();card.setPadding(dp(16),dp(15),dp(16),dp(14));card.setBackground(shape(SURFACE,20,LINE,1));card.setElevation(dp(2));
         LinearLayout top=row();TextView title=text(task.optString("title"),17,INK);title.setTypeface(null,1);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         TextView badge=text(completed?"完成":"第 "+(stage+1)+" 次",12,completed?FOREST:overdue?CORAL:FOREST);badge.setPadding(dp(10),dp(6),dp(10),dp(6));badge.setBackground(shape(completed?MINT:overdue?CORAL_PALE:MINT,14,0,0));top.addView(badge);card.addView(top);gap(card,9);
         String status=completed?"最后完成  "+date(lastCompleted(task)):overdue?"现在可以开始复习":"计划时间  "+date(due);
         card.addView(text(status,14,completed?MUTED:overdue?CORAL:FOREST));gap(card,5);
         int total=intervals==null?7:intervals.length();int shown=completed?total:Math.min(stage,total);
-        card.addView(text("复习进度  "+shown+" / "+total+" 次",12,MUTED));gap(card,12);
+        card.addView(text("复习进度  "+shown+" / "+total+" 次",12,MUTED));
+        JSONArray taskWords=task.optJSONArray("words");if(taskWords!=null&&taskWords.length()>0){gap(card,5);card.addView(text("平均掌握 "+String.format(java.util.Locale.CHINA,"%.1f",Mastery.average(taskWords))+"/5",12,MUTED));}
+        gap(card,12);
         LinearLayout actions=row();
         if(!completed){
             boolean hasWords=task.optJSONArray("words")!=null&&task.optJSONArray("words").length()>0;
@@ -309,8 +317,10 @@ public class MainActivity extends ScreenActivity {
     }
     private void confirmComplete(long id) {
         JSONObject task=Store.find(Store.tasks(this),id);if(task==null)return;
+        if(Store.prefs(this).getBoolean("skipEmptyTaskConfirm",false)){complete(id,task.optInt("stage"));return;}
         String message="下一次复习会从现在重新计算。"+(task.optLong("due")>System.currentTimeMillis()?"\n这次还没到计划时间，仍要标记完成吗？":"");
-        new AlertDialog.Builder(this).setTitle("完成本次复习？").setMessage(message).setNegativeButton("继续复习",null).setPositiveButton("完成",(d,w)->complete(id,task.optInt("stage"))).show();
+        LinearLayout body=column();body.setPadding(dp(20),0,dp(20),0);body.addView(text(message,15,INK));CheckBox dontRemind=new CheckBox(this);dontRemind.setText("以后直接完成空单词任务，不再询问");dontRemind.setMinHeight(dp(48));body.addView(dontRemind);
+        new AlertDialog.Builder(this).setTitle("完成本次复习？").setView(body).setNegativeButton("继续复习",null).setPositiveButton("完成",(d,w)->{if(dontRemind.isChecked())Store.prefs(this).edit().putBoolean("skipEmptyTaskConfirm",true).apply();complete(id,task.optInt("stage"));}).show();
     }
     private void complete(long id,int expectedStage) {
         try {
@@ -337,7 +347,7 @@ public class MainActivity extends ScreenActivity {
     }
     private void details(long id) {
         JSONObject task=Store.find(Store.tasks(this),id);if(task==null)return;StringBuilder body=new StringBuilder();
-        if(task.optJSONArray("words")!=null&&task.optJSONArray("words").length()>0){new AlertDialog.Builder(this).setTitle(task.optString("title")+" · "+task.optJSONArray("words").length()+" 个单词").setItems(new String[]{"快速复习","校对单词卡","查看复习记录","删除任务"},(d,which)->{if(which==0)Motion.open(this,new Intent(this,ReviewActivity.class).putExtra("taskId",id));else if(which==1)Motion.open(this,new Intent(this,WordEditorActivity.class).putExtra("taskId",id));else if(which==2)history(task);else confirmDelete(id);}).setNegativeButton("关闭",null).show();return;}
+        if(task.optJSONArray("words")!=null&&task.optJSONArray("words").length()>0){new AlertDialog.Builder(this).setTitle(task.optString("title")+" · "+task.optJSONArray("words").length()+" 个单词").setItems(new String[]{"快速复习","词性义项练习","错词义项练习","校对单词卡","查看复习记录","删除任务"},(d,which)->{if(which==0)Motion.open(this,new Intent(this,ReviewActivity.class).putExtra("taskId",id));else if(which==1)Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",id));else if(which==2)Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",id).putExtra("wrongOnly",true));else if(which==3)Motion.open(this,new Intent(this,WordEditorActivity.class).putExtra("taskId",id));else if(which==4)history(task);else confirmDelete(id);}).setNegativeButton("关闭",null).show();return;}
         if(!task.optString("description").isEmpty())body.append(task.optString("description")).append("\n\n");
         body.append("创建时间  ").append(date(task.optLong("created"))).append("\n提醒时段  ").append(task.optString("windows").isEmpty()?"全天":task.optString("windows")).append("\n\n复习记录\n");
         JSONArray history=task.optJSONArray("history");if(history==null||history.length()==0)body.append("暂无记录");else for(int i=0;i<history.length();i++){JSONObject item=history.optJSONObject(i);body.append("第 ").append(item.optInt("stage")).append(" 次  ").append(date(item.optLong("at"))).append("\n");}
@@ -356,68 +366,90 @@ public class MainActivity extends ScreenActivity {
         if(minutes<60)return minutes+" 分钟";if(minutes%1440==0)return (minutes/1440)+" 天";if(minutes%60==0)return (minutes/60)+" 小时";
         return (minutes/60)+" 小时 "+(minutes%60)+" 分钟";
     }
-    private void settingsPage() {
-        pageHeading("我的","统计与设置");statistics();
-        sectionTitle("复习计划","默认 7 轮 + 可选轮次");
-        Button baseToggle=button("默认间隔   ▾",2,null);content.addView(baseToggle);
-        String[] defaults=Store.DEFAULT_INTERVALS.split(","),values=readIntervals();EditText[] fields=new EditText[8];
-        LinearLayout group=column();group.setPadding(dp(15),dp(3),dp(15),dp(3));group.setBackground(shape(SURFACE,19,LINE,1));
-        String[] stageNames={"第一次复习","第二次复习","第三次复习","第四次复习","第五次复习","第六次复习","第七次复习","最后一轮（可选）"};
-        for(int i=0;i<8;i++) {
-            final int index=i;LinearLayout line=row();line.setMinimumHeight(dp(72));
-            LinearLayout label=column();TextView stage=text(stageNames[i],14,INK);stage.setTypeface(null,1);label.addView(stage);
-            long original=Long.parseLong(defaults[i]);TextView helper=text("默认 "+prettyMinutes(original),11,MUTED);LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(-2,-2);hl.topMargin=dp(2);label.addView(helper,hl);
-            line.addView(label,new LinearLayout.LayoutParams(0,-2,1));fields[i]=input("分钟",values[i],true);fields[i].setGravity(Gravity.CENTER);line.addView(fields[i],new LinearLayout.LayoutParams(dp(92),dp(48)));
-            TextView unit=text("分钟",12,MUTED);LinearLayout.LayoutParams unitLp=new LinearLayout.LayoutParams(-2,-2);unitLp.leftMargin=dp(7);line.addView(unit,unitLp);
-            group.addView(line);if(i<7)group.addView(divider(),new LinearLayout.LayoutParams(-1,dp(1)));
-        }
-        content.addView(group);group.setVisibility(View.GONE);baseToggle.setOnClickListener(v->{Motion.layout(content);boolean expand=group.getVisibility()==View.GONE;group.setVisibility(expand?View.VISIBLE:View.GONE);baseToggle.setText(expand?"默认间隔   ▴":"默认间隔   ▾");});gap(content,10);
-        Switch useLast=new Switch(this);useLast.setText("启用第 8 轮（默认 14 天）");useLast.setMinHeight(dp(52));useLast.setTextSize(14);useLast.setTextColor(INK);useLast.setChecked(Store.prefs(this).getBoolean("optional",false));
-        if(Build.VERSION.SDK_INT>=21)useLast.setButtonTintList(ColorStateList.valueOf(FOREST));content.addView(useLast);gap(content,20);
-        List<EditText> extras=new ArrayList<>();LinearLayout extraBody=column();Button extraToggle=button("自定义间隔   ▾",2,null);content.addView(extraToggle);content.addView(extraBody);
-        for(long n:IntervalPlan.parse(Store.prefs(this).getString("extraIntervals","")))addExtra(extraBody,extras,n);
-        extraBody.addView(button("添加复习间隔",1,v->{Motion.layout(extraBody);addExtra(extraBody,extras,20160);extraToggle.setText("自定义间隔（"+extras.size()+" 轮）  ▴");}));extraBody.setVisibility(View.GONE);
-        extraToggle.setText("自定义间隔（"+extras.size()+" 轮）  ▾");extraToggle.setOnClickListener(v->{Motion.layout(content);boolean expand=extraBody.getVisibility()==View.GONE;extraBody.setVisibility(expand?View.VISIBLE:View.GONE);extraToggle.setText("自定义间隔（"+extras.size()+" 轮）  "+(expand?"▴":"▾"));});gap(content,20);
-        sectionTitle("快速复习","答案显示方式");
-        Spinner mode=new Spinner(this);mode.setMinimumHeight(dp(52));mode.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"先显示英文","先显示中文","随机显示中文或英文"}));mode.setSelection(Math.max(0,Math.min(2,Store.prefs(this).getInt("reviewMode",0))));content.addView(mode);
-        Switch shuffle=new Switch(this);shuffle.setText("打乱单词顺序");shuffle.setMinHeight(dp(52));shuffle.setChecked(Store.prefs(this).getBoolean("shuffleWords",false));content.addView(shuffle);
-        Switch motion=new Switch(this);motion.setText("界面动态效果");motion.setMinHeight(dp(52));motion.setChecked(Store.prefs(this).getBoolean("motion",true));content.addView(motion);gap(content,20);
-        sectionTitle("声音与触感","");
-        Switch autoSpeak=settingSwitch("显示英文时自动朗读","autoSpeak",true);
-        content.addView(button("朗读声音与语速",1,v->SpeechSettings.show(this)));
-        Switch feedbackSound=settingSwitch("复习确认音效","feedbackSound",true);
-        LinearLayout previews=row();LinearLayout.LayoutParams previewLeft=new LinearLayout.LayoutParams(0,dp(48),1);previewLeft.rightMargin=dp(8);previews.addView(button("试听：记得",1,v->interaction.preview(this,Feedback.KNOWN)),previewLeft);previews.addView(button("试听：再看一次",1,v->interaction.preview(this,Feedback.RETRY)),new LinearLayout.LayoutParams(0,dp(48),1));content.addView(previews);
-        Switch haptic=settingSwitch("复习确认触感","haptic",true);
-        Switch reminderSound=settingSwitch("到期通知使用声音","reminderSound",true);
-        content.addView(text("这是系统通知声音，不是持续响铃的闹钟；声音与震动也受系统设置控制。",12,MUTED));gap(content,20);
-        sectionTitle("每日提醒时间","可分别选择开始和结束");
-        TimeWindowPicker windows=new TimeWindowPicker(this,Store.prefs(this).getString("windows",""),()->{});content.addView(windows.view());gap(content,8);
-        Switch respectWindows=new Switch(this);respectWindows.setText("只在选择的时段内提醒");respectWindows.setMinHeight(dp(54));respectWindows.setTextSize(14);respectWindows.setTextColor(INK);respectWindows.setChecked(ReminderWindows.restricted(this));content.addView(respectWindows);
-        TextView windowHelp=text("关闭后全天可提醒。开启后，如果间隔到期时不在可用时段内，会顺延至下一时段。跨午夜也可设置。",12,MUTED);content.addView(windowHelp);gap(content,16);
-        sectionTitle("提醒权限","");
-        settingsNotificationStatus=text(notificationStatus(),14,INK);content.addView(settingsNotificationStatus);content.addView(button("通知权限设置",2,v->Notifications.openNotifications(this)));
-        settingsExactStatus=text(exactStatus(),14,INK);gap(content,6);content.addView(settingsExactStatus);if(Notifications.exactPermissionNeeded(this)&&!Notifications.exactAllowed(this))content.addView(button("精确提醒权限设置",2,v->Notifications.openExactAlarmSettings(this)));gap(content,16);
-        final String initial=settingsValue(fields,extras,windows,respectWindows,useLast,mode,shuffle,motion,autoSpeak,feedbackSound,haptic,reminderSound);
-        settingsChanged=()->!initial.equals(settingsValue(fields,extras,windows,respectWindows,useLast,mode,shuffle,motion,autoSpeak,feedbackSound,haptic,reminderSound));
+    private String[] settingNames(){return new String[]{"复习计划","复习与拼写","声音与触感","提醒时段","AI","权限管理"};}
+    private void settingsPage(){
+        if(settingsCategory<0){pageHeading("我的","统计与设置");statistics();content.addView(button("错题本",1,v->Motion.open(this,new Intent(this,WrongBookActivity.class))));gap(content,10);content.addView(button("创造力造句",1,v->Motion.open(this,new Intent(this,CreateActivity.class))));gap(content,16);sectionTitle("设置","按类别查看和修改");String[] names=settingNames(),notes={"默认间隔、自定义轮次","卡片显示、拼写偏好","朗读、音效与触感","可用提醒时间","DeepSeek / 小米 MiMo / 自定义","通知和精确提醒授权"};for(int i=0;i<names.length;i++)addSettingsEntry(names[i],notes[i],i);return;}
+        String name=settingNames()[settingsCategory];pageHeading("我的",name);content.addView(button("返回设置目录",2,v->leaveSettingsCategory()));gap(content,12);
+        if(settingsCategory==0)intervalSettings();else if(settingsCategory==1)reviewSettings();else if(settingsCategory==2)soundSettings();else if(settingsCategory==3)windowSettings();else if(settingsCategory==4)aiSettings();else permissionSettings();
+    }
+    private void aiSettings(){
+        sectionTitle("AI 助手","可选，默认关闭");
+        Switch enabled=new Switch(this);enabled.setText("启用 AI 功能");enabled.setMinHeight(dp(52));enabled.setChecked(AiSettings.enabled(this));content.addView(enabled);gap(content,8);
+        Spinner provider=new Spinner(this);provider.setMinimumHeight(dp(52));provider.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"DeepSeek","小米 MiMo","自定义兼容端点"}));provider.setSelection(AiSettings.provider(this));content.addView(provider);gap(content,8);
+        EditText base=input("Base URL",AiSettings.storedBaseUrl(this).isEmpty()?AiSettings.baseUrl(this):AiSettings.storedBaseUrl(this),false);content.addView(base);gap(content,8);
+        String existingKey=AiSettings.apiKey(this);
+        EditText key=input(existingKey.isEmpty()?"API Key":"API Key（留空则保留已保存："+AiSecrets.mask(existingKey)+"）","",false);
+        key.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);content.addView(key);gap(content,8);
+        EditText model=input("模型名",AiSettings.storedModel(this).isEmpty()?AiSettings.model(this):AiSettings.storedModel(this),false);content.addView(model);gap(content,8);
+        provider.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+            public void onNothingSelected(android.widget.AdapterView<?> p){}
+            public void onItemSelected(android.widget.AdapterView<?> p,View v,int position,long id){
+                if(position==AiSettings.PROVIDER_DEEPSEEK){base.setText(AiSettings.DEEPSEEK_URL);if(model.getText().toString().trim().isEmpty()||model.getText().toString().contains("mimo")||model.getText().toString().equals(AiSettings.MIMO_MODEL))model.setText(AiSettings.DEEPSEEK_MODEL);}
+                else if(position==AiSettings.PROVIDER_MIMO){base.setText(AiSettings.MIMO_URL);if(model.getText().toString().trim().isEmpty()||model.getText().toString().contains("deepseek")||model.getText().toString().equals(AiSettings.DEEPSEEK_MODEL))model.setText(AiSettings.MIMO_MODEL);}
+            }
+        });
+        content.addView(button("测试连接",1,v->{
+            if(!AiSettings.save(this,true,provider.getSelectedItemPosition(),base.getText().toString(),model.getText().toString(),key.getText().toString())){toast("设置未能保存");return;}
+            if(AiSettings.apiKey(this).isEmpty()){toast("请填写 API Key");return;}
+            toast("正在测试…");
+            AiClient.chatJson(this,AiPrompts.systemPing(),AiPrompts.userPing(),new AiClient.Callback(){
+                @Override public void onResult(JSONObject json){toast(json.optBoolean("ok",true)?"连接成功："+json.optString("message","ok"):"连接成功");}
+                @Override public void onError(String message){toast(message);}
+            });
+        }));gap(content,8);
+        content.addView(button("清除本机 API Key",2,v->{AiSecrets.clear(this);key.setText("");toast("已清除 Key");}));gap(content,8);
+        content.addView(text("Key 经本机密钥库加密保存，不会上传或写入工程文件。文本整理/复盘可用 DeepSeek；照片识词请用小米 MiMo。MiMo 请用按量 sk- Key。未开启 AI 时仍可离线复习。",12,MUTED));
         saveSettings=()->{
-            try {
-                StringBuilder packed=new StringBuilder();for(int i=0;i<fields.length;i++){long n=Long.parseLong(fields[i].getText().toString());if(n<1||n>5256000)throw new IllegalArgumentException("每个间隔必须在 1 到 5256000 分钟之间");if(i>0)packed.append(',');packed.append(n);}
-                StringBuilder extra=new StringBuilder();for(EditText field:extras){if(extra.length()>0)extra.append(',');extra.append(extraMinutes(field));}IntervalPlan.parse(extra.toString());
-                String range=windows.value();boolean restricted=respectWindows.isChecked();if(restricted&&range.isEmpty())throw new IllegalArgumentException("请添加至少一个提醒时段，或关闭“只在选择的时段内提醒”");
-                if(!Store.prefs(this).edit().putString("intervals",packed.toString()).putString("extraIntervals",extra.toString()).putString("windows",range).putBoolean("respectWindows",restricted).putBoolean("optional",useLast.isChecked()).putInt("reviewMode",mode.getSelectedItemPosition()).putBoolean("shuffleWords",shuffle.isChecked()).putBoolean("motion",motion.isChecked()).putBoolean("autoSpeak",autoSpeak.isChecked()).putBoolean("feedbackSound",feedbackSound.isChecked()).putBoolean("haptic",haptic.isChecked()).putBoolean("reminderSound",reminderSound.isChecked()).commit())throw new IllegalStateException("设备存储写入失败");toast("设置已保存");return true;
-            }catch(Exception e){toast("未保存："+e.getMessage());return false;}
+            boolean ok=AiSettings.save(this,enabled.isChecked(),provider.getSelectedItemPosition(),base.getText().toString(),model.getText().toString(),key.getText().toString());
+            if(!ok)toast("设置未能保存");
+            return ok;
         };
-        content.addView(button("保存设置",0,v->{if(saveSettings.get())navigate(0);}));gap(content,9);
-        content.addView(button("恢复默认间隔",2,v->{String[] reset=Store.DEFAULT_INTERVALS.split(",");for(int i=0;i<fields.length;i++)fields[i].setText(reset[i]);toast("已填入默认间隔，点击保存后生效");}));
-        gap(content,12);TextView note=text("已创建的任务会继续使用创建时的间隔与提醒时段。",12,MUTED);note.setGravity(Gravity.CENTER);content.addView(note);
+    }
+    private void addSettingsEntry(String title,String subtitle,int category){LinearLayout item=column();item.setPadding(dp(16),dp(13),dp(16),dp(13));item.setMinimumHeight(dp(68));item.setBackground(shape(SURFACE,16,LINE,1));TextView heading=text(title,16,INK);heading.setTypeface(null,1);item.addView(heading);TextView detail=text(subtitle,12,MUTED);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(3);item.addView(detail,p);item.setOnClickListener(v->openSettingsCategory(category));Motion.press(item);content.addView(item);gap(content,9);}
+    private void openSettingsCategory(int category){settingsCategory=category;render();}
+    private void leaveSettingsCategory(){if(saveSettings!=null&&!saveSettings.get())return;settingsCategory=-1;render();}
+    private void intervalSettings(){
+        sectionTitle("默认复习间隔","分钟");String[] defaults=Store.DEFAULT_INTERVALS.split(","),values=readIntervals();EditText[] fields=new EditText[8];LinearLayout group=column();group.setPadding(dp(15),dp(3),dp(15),dp(3));group.setBackground(shape(SURFACE,19,LINE,1));String[] names={"第 1 轮","第 2 轮","第 3 轮","第 4 轮","第 5 轮","第 6 轮","第 7 轮","第 8 轮（可选）"};
+        for(int i=0;i<8;i++){LinearLayout line=row();line.setMinimumHeight(dp(66));LinearLayout label=column();TextView stage=text(names[i],14,INK);stage.setTypeface(null,1);label.addView(stage);TextView helper=text("默认 "+prettyMinutes(Long.parseLong(defaults[i])),11,MUTED);label.addView(helper);line.addView(label,new LinearLayout.LayoutParams(0,-2,1));fields[i]=input("分钟",values[i],true);fields[i].setGravity(Gravity.CENTER);line.addView(fields[i],new LinearLayout.LayoutParams(dp(96),dp(48)));group.addView(line);if(i<7)group.addView(divider(),new LinearLayout.LayoutParams(-1,dp(1)));}content.addView(group);gap(content,8);
+        Switch useLast=new Switch(this);useLast.setText("启用第 8 轮");useLast.setMinHeight(dp(52));useLast.setChecked(Store.prefs(this).getBoolean("optional",false));content.addView(useLast);gap(content,14);
+        List<EditText> extras=new ArrayList<>();LinearLayout extraBody=column();Button extraToggle=button("自定义间隔（"+IntervalPlan.parse(Store.prefs(this).getString("extraIntervals","")).size()+" 轮）  ▾",2,null);content.addView(extraToggle);content.addView(extraBody);for(long n:IntervalPlan.parse(Store.prefs(this).getString("extraIntervals","")))addExtra(extraBody,extras,n);extraBody.addView(button("添加复习间隔",1,v->addExtra(extraBody,extras,20160)));extraBody.setVisibility(View.GONE);extraToggle.setOnClickListener(v->{boolean open=extraBody.getVisibility()!=View.VISIBLE;extraBody.setVisibility(open?View.VISIBLE:View.GONE);extraToggle.setText("自定义间隔（"+extras.size()+" 轮）  "+(open?"▴":"▾"));});gap(content,10);
+        content.addView(button("恢复默认间隔",2,v->{String[] reset=Store.DEFAULT_INTERVALS.split(",");for(int i=0;i<fields.length;i++)fields[i].setText(reset[i]);}));TextView note=text("修改只影响新建任务；已有任务会保留创建时的计划。",12,MUTED);content.addView(note);
+        saveSettings=()->{try{StringBuilder packed=new StringBuilder(),extra=new StringBuilder();for(int i=0;i<fields.length;i++){long n=Long.parseLong(fields[i].getText().toString().trim());if(n<1||n>5256000)throw new IllegalArgumentException("每个间隔须在 1 到 5256000 分钟之间");if(i>0)packed.append(',');packed.append(n);}for(EditText field:extras){if(extra.length()>0)extra.append(',');extra.append(extraMinutes(field));}IntervalPlan.parse(extra.toString());boolean ok=Store.prefs(this).edit().putString("intervals",packed.toString()).putString("extraIntervals",extra.toString()).putBoolean("optional",useLast.isChecked()).commit();if(!ok)throw new IllegalStateException("设备存储写入失败");return true;}catch(Exception e){toast("未保存："+e.getMessage());return false;}};
+    }
+    private void reviewSettings(){
+        sectionTitle("卡片复习","答案和拼写");Spinner mode=new Spinner(this);mode.setMinimumHeight(dp(52));mode.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"先显示英文","先显示中文","随机显示中文或英文"}));mode.setSelection(Math.max(0,Math.min(2,Store.prefs(this).getInt("reviewMode",0))));content.addView(mode);Switch shuffle=new Switch(this);shuffle.setText("打乱单词顺序");shuffle.setMinHeight(dp(52));shuffle.setChecked(Store.prefs(this).getBoolean("shuffleWords",false));content.addView(shuffle);Switch motion=new Switch(this);motion.setText("界面动态效果");motion.setMinHeight(dp(52));motion.setChecked(Store.prefs(this).getBoolean("motion",true));content.addView(motion);gap(content,8);
+        content.addView(text("词性/义项练习可在任务详情里单独开始：正面英文，从多个词性释义中选择。",12,MUTED));gap(content,12);
+        android.content.SharedPreferences prefs=Store.prefs(this);int initialSpelling=Math.max(0,Math.min(2,prefs.getInt("spellingMode",SpellingPlan.NONE)));boolean wasConfigured=prefs.getBoolean("spellingConfigured",false);
+        sectionTitle("复习后拼写","默认方式");Spinner spelling=new Spinner(this);spelling.setMinimumHeight(dp(52));spelling.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"默认：全部单词","默认：错题本中的错词","默认：不拼写"}));spelling.setSelection(initialSpelling);content.addView(spelling);
+        Switch askAgain=new Switch(this);askAgain.setText("每轮复习后重新询问拼写方式");askAgain.setMinHeight(dp(52));askAgain.setChecked(prefs.getBoolean("askSpellingMode",false));content.addView(askAgain);
+        Switch forgottenSpelling=new Switch(this);forgottenSpelling.setText("额外拼写本轮忘记的单词");forgottenSpelling.setMinHeight(dp(52));forgottenSpelling.setChecked(prefs.getBoolean("spellForgottenWords",false));content.addView(forgottenSpelling);
+        Switch forgottenExamples=new Switch(this);forgottenExamples.setText("复习后为忘记的词补充例句");forgottenExamples.setMinHeight(dp(52));forgottenExamples.setChecked(prefs.getBoolean("addExamplesForForgotten",false));content.addView(forgottenExamples);
+        content.addView(text("额外拼写即使默认设为不拼写也会生效。补例句只处理本轮忘记且尚无例句的单词，可逐个跳过。离开本分类后自动保存。",12,MUTED));
+        saveSettings=()->{boolean selectedExplicitly=spelling.getSelectedItemPosition()!=initialSpelling;boolean ok=prefs.edit().putInt("reviewMode",mode.getSelectedItemPosition()).putBoolean("shuffleWords",shuffle.isChecked()).putBoolean("motion",motion.isChecked()).putInt("spellingMode",spelling.getSelectedItemPosition()).putBoolean("spellingConfigured",wasConfigured||selectedExplicitly).putBoolean("askSpellingMode",askAgain.isChecked()).putBoolean("spellForgottenWords",forgottenSpelling.isChecked()).putBoolean("addExamplesForForgotten",forgottenExamples.isChecked()).commit();if(!ok)toast("设置未能保存");return ok;};
+    }
+    private void soundSettings(){
+        sectionTitle("单词朗读","");Switch autoSpeak=settingSwitch("揭晓答案时自动朗读单词和例句","autoSpeak",true);content.addView(button("朗读声音与语速",1,v->SpeechSettings.show(this)));sectionTitle("交互反馈","");Switch feedbackSound=settingSwitch("复习确认音效","feedbackSound",true);LinearLayout previews=row();LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1);lp.rightMargin=dp(8);previews.addView(button("试听：记得",1,v->interaction.preview(this,Feedback.KNOWN)),lp);previews.addView(button("试听：忘记了",1,v->interaction.preview(this,Feedback.RETRY)),new LinearLayout.LayoutParams(0,dp(48),1));content.addView(previews);Switch haptic=settingSwitch("卡片交互触感","haptic",true);Switch reminderSound=settingSwitch("到期通知使用声音","reminderSound",true);content.addView(text("到期通知使用系统通知声音，仍受系统静音与勿扰设置影响。",12,MUTED));
+        saveSettings=()->{boolean ok=Store.prefs(this).edit().putBoolean("autoSpeak",autoSpeak.isChecked()).putBoolean("feedbackSound",feedbackSound.isChecked()).putBoolean("haptic",haptic.isChecked()).putBoolean("reminderSound",reminderSound.isChecked()).commit();if(!ok){toast("设置未能保存");return false;}Notifications.ensureChannel(this);return true;};
+    }
+    private void windowSettings(){
+        sectionTitle("每日提醒时段","可添加多个时段");TimeWindowPicker windows=new TimeWindowPicker(this,Store.prefs(this).getString("windows",""),()->{});content.addView(windows.view());gap(content,8);Switch respect=new Switch(this);respect.setText("只在选择的时段内提醒");respect.setMinHeight(dp(54));respect.setChecked(ReminderWindows.restricted(this));content.addView(respect);content.addView(text("关闭后全天可提醒。开启后，不在时段内到期的任务会顺延到下一时段；支持跨午夜。",12,MUTED));
+        saveSettings=()->{try{String range=windows.value();if(respect.isChecked()&&range.isEmpty())throw new IllegalArgumentException("请添加至少一个时段，或关闭时段限制");boolean ok=Store.prefs(this).edit().putString("windows",range).putBoolean("respectWindows",respect.isChecked()).commit();if(!ok)throw new IllegalStateException("设备存储写入失败");return true;}catch(Exception e){toast("未保存："+e.getMessage());return false;}};
+    }
+    private void permissionSettings(){
+        settingsNotificationStatus=text(notificationStatus(),14,INK);content.addView(settingsNotificationStatus);content.addView(button("通知权限设置",2,v->Notifications.openNotifications(this)));settingsExactStatus=text(exactStatus(),14,INK);gap(content,8);content.addView(settingsExactStatus);if(Notifications.exactPermissionNeeded(this)&&!Notifications.exactAllowed(this))content.addView(button("精确提醒权限设置",2,v->Notifications.openExactAlarmSettings(this)));saveSettings=()->true;
     }
     private Switch settingSwitch(String label,String key,boolean initial){Switch control=new Switch(this);control.setText(label);control.setMinHeight(dp(52));control.setTextSize(14);control.setTextColor(INK);control.setChecked(Store.prefs(this).getBoolean(key,initial));content.addView(control);return control;}
-    private String settingsValue(EditText[] base,List<EditText> extra,TimeWindowPicker windows,Switch respectWindows,Switch optional,Spinner mode,Switch shuffle,Switch motion,Switch... feedback){StringBuilder out=new StringBuilder();for(EditText field:base)out.append(field.getText()).append('|');out.append('/');for(EditText field:extra)out.append(field.getText()).append(':').append(((Spinner)field.getTag()).getSelectedItemPosition()).append('|');out.append('/').append(windows.draftValue()).append('/').append(respectWindows.isChecked()).append('/').append(optional.isChecked()).append('/').append(mode.getSelectedItemPosition()).append('/').append(shuffle.isChecked()).append('/').append(motion.isChecked());for(Switch control:feedback)out.append('/').append(control.isChecked());return out.toString();}
+    private String intervalDraftValue(EditText[] base,List<EditText> extra,Switch optional){StringBuilder out=new StringBuilder();for(EditText field:base)out.append(field.getText()).append('|');out.append('/');for(EditText field:extra)out.append(field.getText()).append(':').append(((Spinner)field.getTag()).getSelectedItemPosition()).append('|');return out.append('/').append(optional.isChecked()).toString();}
     private long extraMinutes(EditText field){int unit=((Spinner)field.getTag()).getSelectedItemPosition();long factor=unit==2?1440:unit==1?60:1;long value=Long.parseLong(field.getText().toString().trim());if(value<1||value>5256000/factor)throw new IllegalArgumentException("自定义间隔必须在 1 分钟到 3650 天之间");return value*factor;}
     private void addExtra(LinearLayout container,List<EditText> fields,long minutes){
         if(fields.size()>=100){toast("最多添加 100 个自定义间隔");return;}LinearLayout line=row();line.setPadding(0,dp(5),0,dp(5));int selection=minutes%1440==0?2:minutes%60==0?1:0;EditText field=input("间隔",String.valueOf(minutes/(selection==2?1440:selection==1?60:1)),true);fields.add(field);line.addView(field,new LinearLayout.LayoutParams(0,dp(52),1));Spinner unit=new Spinner(this);unit.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"分钟","小时","天"}));unit.setSelection(selection);field.setTag(unit);line.addView(unit,new LinearLayout.LayoutParams(dp(92),dp(52)));Button remove=button("−",2,v->{Motion.layout(container);container.removeView(line);fields.remove(field);});remove.setText("");remove.setPadding(dp(17),0,dp(17),0);remove.setContentDescription("删除此间隔");line.addView(remove,new LinearLayout.LayoutParams(dp(54),dp(52)));int insert=container.getChildCount();if(insert>0&&container.getChildAt(insert-1) instanceof Button)insert--;container.addView(line,insert);
     }
     private void toast(String message){Toast.makeText(this,message,Toast.LENGTH_LONG).show();}
-    @Override public void onBackPressed(){if(currentPage!=0)goPage(0);else super.onBackPressed();}
+    private void confirmExit(){
+        if(Store.prefs(this).getBoolean("skipSettingsExitPrompt",false)){finish();return;}
+        LinearLayout body=column();body.setPadding(dp(20),0,dp(20),0);body.addView(text("设置分类离开时已自动保存；退出前会再次写入设置。",14,INK));CheckBox dontRemind=new CheckBox(this);dontRemind.setText("不再提示");dontRemind.setMinHeight(dp(48));body.addView(dontRemind);
+        new AlertDialog.Builder(this).setTitle("保存设置并退出？").setView(body).setNegativeButton("继续设置",null).setPositiveButton("保存并退出",(d,w)->{if(!Store.prefs(this).edit().putBoolean("skipSettingsExitPrompt",dontRemind.isChecked()).commit()){toast("保存失败，仍留在应用中");return;}finish();}).show();
+    }
+    @Override public void onBackPressed(){if(currentPage==2&&settingsCategory>=0){leaveSettingsCategory();return;}if(currentPage==2){confirmExit();return;}if(currentPage!=0){goPage(0);return;}super.onBackPressed();}
     @Override protected void onDestroy(){interaction.release();super.onDestroy();}
 }
