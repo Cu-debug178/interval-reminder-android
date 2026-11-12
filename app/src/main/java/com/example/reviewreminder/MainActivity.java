@@ -107,6 +107,8 @@ public class MainActivity extends ScreenActivity {
     private LinearLayout calendarGrid, calendarAgenda;
     private TextView monthTitle;
     private Button calendarToday;
+    /** In-month day numbers of the visible grid, keyed by day start; lets a tap repaint two cells instead of 42. */
+    private final Map<Long,TextView> dayNums=new HashMap<>();
 
     private int dp(float n) { return Theme.dp(this,n); }
 
@@ -211,7 +213,11 @@ public class MainActivity extends ScreenActivity {
             navItems[i]=item;navPills[i]=pill;navIcons[i]=icon;navLabels[i]=label;
             bar.addView(item,new LinearLayout.LayoutParams(0,dp(56),1));
         }
-        host.addView(bar,WordUi.lp());
+        // Tabs share the content's 600dp reading width on tablets; the hairline stays full width.
+        WordUi.Column col=new WordUi.Column(this);
+        col.setPadding(0,0,0,0);
+        col.addView(bar,WordUi.lp());
+        host.addView(col,WordUi.lp());
         return host;
     }
 
@@ -433,7 +439,7 @@ public class MainActivity extends ScreenActivity {
         setupWindows=Store.prefs(this).getString("windows","");
         setupRespectWindows=ReminderWindows.restricted(this);
 
-        Sheet sheet=new Sheet(this).title("设置你的提醒时间");
+        Sheet sheet=new Sheet(this);
         sheet.dialog.setCanceledOnTouchOutside(false);
         LinearLayout wrap=ui.col();
         setupProgress=new ProgressLine(this);
@@ -463,7 +469,7 @@ public class MainActivity extends ScreenActivity {
     private void replaceSetupPage(int direction){
         setupContainer.removeAllViews();
         setupContainer.addView(setupPage(),WordUi.lp());
-        setupStepLabel.setText("第 "+(setupStep+1)+" 步，共 3 步");
+        setupStepLabel.setText("设置提醒时间 · 第 "+(setupStep+1)+" 步，共 3 步");
         setupProgress.set((setupStep+1)/3f,direction!=0);
         setupError.setVisibility(View.GONE);
         if(setupSheet!=null){
@@ -475,7 +481,7 @@ public class MainActivity extends ScreenActivity {
 
     private TextView setupQuestion(LinearLayout page,String question,String detail){
         TextView q=ui.type(question,Theme.T_HEADLINE);
-        q.setTextSize(18);
+        q.setTextSize(19);
         page.addView(q);
         if(detail!=null){
             TextView d=ui.type(detail,Theme.T_CALLOUT);
@@ -666,7 +672,9 @@ public class MainActivity extends ScreenActivity {
 
         if(active.isEmpty()){
             gap(content,Theme.SPACE_24);
-            content.addView(ui.empty(R.drawable.ic_book_open,"暂时没有复习任务","录词或打开课程后创建计划，也可随时练习已有词卡。","去录词",v->Motion.open(this,new Intent(this,ImportActivity.class))),WordUi.lp());
+            View.OnClickListener capture=v->Motion.open(this,new Intent(this,ImportActivity.class));
+            if(!taskList(true).isEmpty())content.addView(ui.empty(R.drawable.ic_circle_check,"全部复习完成","可在下方回顾已完成的词组，或录入新词。","去录词",capture),WordUi.lp());
+            else content.addView(ui.empty(R.drawable.ic_book_open,"暂时没有复习任务","录词或打开课程后创建计划，也可随时练习已有词卡。","去录词",capture),WordUi.lp());
         }else{
             ui.section(content,"待复习",due.isEmpty()?null:due.size()+" 组");
             if(due.isEmpty())restCard(later.get(0));
@@ -681,10 +689,13 @@ public class MainActivity extends ScreenActivity {
             if(!later.isEmpty()){
                 ui.section(content,"之后安排",later.size()+" 组");
                 LinearLayout group=ui.group();
-                for(JSONObject t:later){
+                // Keep home short: the next few plans, then a link to the full calendar.
+                for(int i=0;i<Math.min(5,later.size());i++){
+                    JSONObject t=later.get(i);
                     long id=t.optLong("id");
                     ui.item(group,0,t.optString("title"),"第 "+(t.optInt("stage")+1)+" 轮",when(t.optLong("due")),false,v->details(id));
                 }
+                if(later.size()>5)ui.item(group,0,"查看全部 "+later.size()+" 组",null,null,true,v->goPage(1));
                 content.addView(group,WordUi.lp());
             }
         }
@@ -713,7 +724,7 @@ public class MainActivity extends ScreenActivity {
         CharSequence status;
         if(dueCount==0)status="今天没有待复习";
         else{
-            String head=dueCount+" 组到期";
+            String head="今天 "+dueCount+" 组";
             SpannableString s=new SpannableString(head+(words>0?" · "+words+" 个单词":""));
             s.setSpan(new ForegroundColorSpan(Theme.PRIMARY),0,head.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             s.setSpan(new TypefaceSpan("sans-serif-medium"),0,head.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -723,6 +734,15 @@ public class MainActivity extends ScreenActivity {
         line.setTextSize(Theme.BODY_SIZE);
         line.setText(status);
         content.addView(line,margins(-1,-2,0,Theme.SPACE_4,0,0));
+    }
+
+    /** Due wording that matches the header: “3 天前到期” for earlier days, “已到期” for earlier today, “22:00 到期” later today. */
+    private String dueLabel(long due){
+        long now=System.currentTimeMillis();
+        if(due>now)return clock(due)+" 到期";
+        long today=dayStart(now),day=dayStart(due);
+        if(day<today)return Math.round((today-day)/(double)DAY)+" 天前到期";
+        return "已到期";
     }
 
     /** dp() for LayoutParams helpers that take raw sizes. */
@@ -742,7 +762,7 @@ public class MainActivity extends ScreenActivity {
         LinearLayout top=ui.row();
         TextView round=ui.type("第 "+(stage+1)+" 轮",Theme.T_OVERLINE);
         top.addView(round,WordUi.weight());
-        top.addView(overdue?ui.chip("已到期",Theme.DANGER_SOFT,Theme.DANGER):ui.chip(clock(due)+" 到期",Theme.PRIMARY_SOFT,Theme.PRIMARY));
+        top.addView(ui.chip(dueLabel(due),overdue?Theme.DANGER_SOFT:Theme.PRIMARY_SOFT,overdue?Theme.DANGER:Theme.PRIMARY));
         card.addView(top,WordUi.lp());
 
         TextView title=ui.type(task.optString("title"),Theme.T_HEADLINE);
@@ -775,9 +795,8 @@ public class MainActivity extends ScreenActivity {
 
     private void dueRow(LinearLayout group,JSONObject task){
         long id=task.optLong("id");
-        boolean overdue=task.optLong("due")<=System.currentTimeMillis();
         boolean hasWords=wordCount(task)>0;
-        String subtitle="第 "+(task.optInt("stage")+1)+" 轮 · "+(overdue?"已到期":clock(task.optLong("due"))+" 到期");
+        String subtitle="第 "+(task.optInt("stage")+1)+" 轮 · "+dueLabel(task.optLong("due"));
         LinearLayout row=ui.item(group,0,task.optString("title"),subtitle,null,false,v->details(id));
         Button pill=hasWords?ui.pill("开始",0,v->openReview(id,false)):ui.pill("完成",0,v->confirmComplete(id));
         row.addView(pill,margins(-2,dp2(Theme.BUTTON_SMALL),Theme.SPACE_12,0,0,0));
@@ -788,8 +807,8 @@ public class MainActivity extends ScreenActivity {
         long id=next.optLong("id");
         LinearLayout card=ui.card();
         card.setPadding(dp(Theme.SPACE_20),dp(Theme.SPACE_20),dp(Theme.SPACE_20),dp(wordCount(next)>0?Theme.SPACE_8:Theme.SPACE_20));
-        card.addView(ui.type("今天没有到期任务",Theme.T_HEADLINE));
-        TextView detail=ui.type("下一组「"+next.optString("title")+"」"+when(next.optLong("due"))+" 到期",Theme.T_CALLOUT);
+        card.addView(ui.type("下一组",Theme.T_HEADLINE));
+        TextView detail=ui.type("「"+next.optString("title")+"」"+when(next.optLong("due"))+" 开始",Theme.T_CALLOUT);
         card.addView(detail,margins(-1,-2,0,Theme.SPACE_4,0,0));
         if(wordCount(next)>0){
             Button practice=ui.textButton("任意复习",v->openReview(id,true));
@@ -809,8 +828,6 @@ public class MainActivity extends ScreenActivity {
         top.addView(halo,margins(dp2(40),dp2(40),0,0,Theme.SPACE_12,0));
         LinearLayout copy=ui.col();
         TextView title=ui.type("Lesson 1",Theme.T_HEADLINE);
-        title.setTypeface(Theme.SERIF);
-        title.setTextSize(18);
         copy.addView(title);
         copy.addView(ui.type("42 张内置单词卡",Theme.T_CAPTION));
         top.addView(copy,WordUi.weight());
@@ -825,7 +842,9 @@ public class MainActivity extends ScreenActivity {
             }catch(Exception e){error(e.getMessage()==null?"打开失败":e.getMessage());}
         })));
         JSONObject lessonTask=findTaskByTitle("Lesson 1");
-        if(lessonTask!=null&&wordCount(lessonTask)>0){
+        // Only offer free practice here when the lesson is not already on today's list above.
+        boolean lessonListed=lessonTask!=null&&!lessonTask.optBoolean("done")&&lessonTask.optLong("due")<shiftDay(dayStart(System.currentTimeMillis()),1);
+        if(lessonTask!=null&&wordCount(lessonTask)>0&&!lessonListed){
             long lessonId=lessonTask.optLong("id");
             actions.addView(ui.pill("任意复习",0,v->openReview(lessonId,true)),margins(-2,dp2(Theme.BUTTON_SMALL),Theme.SPACE_4,0,0,0));
         }
@@ -974,6 +993,7 @@ public class MainActivity extends ScreenActivity {
     private void fillMonth(int direction){
         if(calendarGrid==null)return;
         calendarGrid.removeAllViews();
+        dayNums.clear();
         Calendar month=Calendar.getInstance();
         month.setTimeInMillis(calendarDate);
         month.set(Calendar.DAY_OF_MONTH,1);
@@ -988,7 +1008,6 @@ public class MainActivity extends ScreenActivity {
         long first=month.getTimeInMillis();
         long last=shiftDay(first,days);
         Map<Long,Integer> marks=monthMarks(first,last);
-        long today=dayStart(System.currentTimeMillis()),selected=dayStart(calendarDate);
         for(int week=0;week<6;week++){
             LinearLayout line=ui.row();
             for(int day=0;day<7;day++){
@@ -998,14 +1017,14 @@ public class MainActivity extends ScreenActivity {
                 c.setTimeInMillis(value);
                 boolean inMonth=index>=0&&index<days;
                 Integer mark=marks.get(value);
-                line.addView(dayCell(value,c.get(Calendar.DAY_OF_MONTH),inMonth,value==selected,value==today,mark==null?0:mark),new LinearLayout.LayoutParams(0,dp(46),1));
+                line.addView(dayCell(value,c.get(Calendar.DAY_OF_MONTH),inMonth,mark==null?0:mark),new LinearLayout.LayoutParams(0,dp(46),1));
             }
             calendarGrid.addView(line,WordUi.lp());
         }
         if(direction!=0)Motion.enter(calendarGrid,direction>0?1:-1);
     }
 
-    private View dayCell(long value,int number,boolean inMonth,boolean selected,boolean today,int mark){
+    private View dayCell(long value,int number,boolean inMonth,int mark){
         LinearLayout cell=ui.col();
         cell.setGravity(Gravity.CENTER);
         TextView num=new TextView(this);
@@ -1021,31 +1040,47 @@ public class MainActivity extends ScreenActivity {
             num.setTextColor(Theme.alpha(Theme.INK_3,.45f));
             return cell;
         }
-        if(selected){
-            num.setBackground(Theme.oval(Theme.PRIMARY));
-            num.setTextColor(Color.WHITE);
-            num.setTypeface(Theme.MEDIUM);
-        }else if(today){
-            GradientDrawable ring=Theme.oval(Color.TRANSPARENT);
-            ring.setStroke(Math.max(1,dp(1)),Theme.PRIMARY);
-            num.setBackground(ring);
-            num.setTextColor(Theme.PRIMARY);
-            num.setTypeface(Theme.MEDIUM);
-        }else num.setTextColor(Theme.INK);
+        dayNums.put(value,num);
+        paintDay(num,value);
         if(mark>0)dot.setBackground(Theme.oval(mark==2?Theme.PRIMARY:Theme.INK_3));
         cell.setContentDescription(format("yyyy年M月d日",value));
         cell.setClickable(true);
         cell.setFocusable(true);
         Theme.applyBorderlessRipple(cell,Theme.RIPPLE_LIGHT);
         cell.setOnClickListener(v->{
-            if(dayStart(calendarDate)==value)return;
+            long previous=dayStart(calendarDate);
+            if(previous==value)return;
             calendarDate=value;
             Feedback.tick(v);
-            fillMonth(0);
+            // Repaint only the two affected numbers so the ripple and press spring finish undisturbed.
+            TextView old=dayNums.get(previous);
+            if(old!=null)paintDay(old,previous);
+            paintDay(num,value);
+            Motion.enter(num);
+            calendarToday.setVisibility(value==dayStart(System.currentTimeMillis())?View.GONE:View.VISIBLE);
             fillAgenda(true);
         });
         Motion.press(cell,.92f);
         return cell;
+    }
+
+    /** Selected = filled pine disc, today = pine ring, otherwise plain ink. */
+    private void paintDay(TextView num,long value){
+        if(value==dayStart(calendarDate)){
+            num.setBackground(Theme.oval(Theme.PRIMARY));
+            num.setTextColor(Color.WHITE);
+            num.setTypeface(Theme.MEDIUM);
+        }else if(value==dayStart(System.currentTimeMillis())){
+            GradientDrawable ring=Theme.oval(Color.TRANSPARENT);
+            ring.setStroke(Math.max(1,dp(1)),Theme.PRIMARY);
+            num.setBackground(ring);
+            num.setTextColor(Theme.PRIMARY);
+            num.setTypeface(Theme.MEDIUM);
+        }else{
+            num.setBackground(null);
+            num.setTextColor(Theme.INK);
+            num.setTypeface(Theme.REGULAR);
+        }
     }
 
     private void fillAgenda(boolean animate){
@@ -1284,6 +1319,7 @@ public class MainActivity extends ScreenActivity {
 
     // ── Settings categories ──────────────────────────────────────────────────
     private void openSettingsCategory(int category){
+        if(changingPage)return;
         profileScrollY=scroll.getScrollY();
         settingsCategory=category;
         render();
@@ -1291,6 +1327,7 @@ public class MainActivity extends ScreenActivity {
     }
 
     private void leaveSettingsCategory(){
+        if(changingPage)return;
         if(!commitSettings())return;
         settingsCategory=-1;
         renderPage(false);
@@ -1310,9 +1347,10 @@ public class MainActivity extends ScreenActivity {
 
     private void categoryPage(){
         LinearLayout head=ui.row();
+        head.setMinimumHeight(dp(Theme.TOP_BAR));
         ImageButton back=ui.iconButton(R.drawable.ic_arrow_left,"返回设置目录",v->leaveSettingsCategory());
-        head.addView(back,margins(dp2(Theme.TOUCH),dp2(Theme.TOUCH),-Theme.SPACE_12,0,0,0));
-        TextView title=ui.type(settingNames()[settingsCategory],Theme.T_TITLE);
+        head.addView(back,margins(dp2(Theme.TOUCH),dp2(Theme.TOUCH),-Theme.SPACE_16,0,0,0));
+        TextView title=ui.type(settingNames()[settingsCategory],Theme.T_HEADLINE);
         head.addView(title,margins(0,-2,Theme.SPACE_4,0,0,0));
         ((LinearLayout.LayoutParams)title.getLayoutParams()).weight=1;
         content.addView(head,WordUi.lp());
@@ -1500,7 +1538,9 @@ public class MainActivity extends ScreenActivity {
         ui.divide(group,Theme.ROW_PAD);
         LinearLayout block=ui.col();
         block.setPadding(dp(Theme.ROW_PAD),dp(14),dp(Theme.ROW_PAD),dp(Theme.ROW_PAD));
-        block.addView(ui.type(label,Theme.T_BODY));
+        TextView l=ui.type(label,Theme.T_BODY);
+        l.setTypeface(Theme.MEDIUM);
+        block.addView(l);
         Segmented segmented=ui.segmented(options,selected,null);
         block.addView(segmented,margins(-1,-2,0,Theme.SPACE_12,0,0));
         group.addView(block,WordUi.lp());
@@ -1563,6 +1603,8 @@ public class MainActivity extends ScreenActivity {
         previews.addView(ui.quietPill("试听：忘记了",R.drawable.ic_volume_2,v->interaction.preview(this,Feedback.RETRY)),margins(-2,dp2(Theme.BUTTON_SMALL),Theme.SPACE_8,0,0,0));
         feedback.addView(previews,WordUi.lp());
         Switch haptic=ui.switchRow(feedback,"卡片交互触感",null,prefs.getBoolean("haptic",true));
+        // The pref is only saved on leaving the category, so tick from the switch's own new state.
+        haptic.setOnCheckedChangeListener((b,on)->{if(on)b.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);});
         Switch reminderSound=ui.switchRow(feedback,"到期通知使用声音",null,prefs.getBoolean("reminderSound",true));
         content.addView(feedback,WordUi.lp());
         ui.note(content,"到期通知使用系统通知声音，仍受系统静音与勿扰设置影响。");
