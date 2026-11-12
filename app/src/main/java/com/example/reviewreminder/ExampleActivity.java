@@ -76,6 +76,9 @@ public final class ExampleActivity extends ScreenActivity {
             words = task.getJSONArray("words");
             chrome();
             show(false);
+            // A result handed over by the screen that opened this one (e.g. the saved review round).
+            String notice = getIntent().getStringExtra("notice");
+            if (state == null && notice != null && !notice.isEmpty()) ui.body.post(() -> ui.toast(notice));
         } catch (Exception e) {
             // Finish first so the notice falls back to a system toast and survives the exit.
             finish();
@@ -103,14 +106,16 @@ public final class ExampleActivity extends ScreenActivity {
         ui.startModal("补充例句");
         Notice.setBottomOffset(this, 84);
 
+        // Same header as review, spelling and the sense quiz: the line, then a quiet counter.
         head = ui.col();
-        counter = ui.type("", Theme.T_CAPTION);
-        counter.setTypeface(Theme.MEDIUM);
-        counter.setTextColor(Theme.INK_2);
-        head.addView(counter, WordUi.lp());
-        ui.gap(head, Theme.SPACE_8);
         progress = new ProgressLine(this);
-        head.addView(progress, new LinearLayout.LayoutParams(-1, ui.dp(3)));
+        head.addView(progress, WordUi.lp());
+        counter = ui.type("", Theme.T_CALLOUT);
+        counter.setTextColor(Theme.INK_2);
+        counter.setFontFeatureSettings("tnum");
+        counter.setMinHeight(ui.dp(28));
+        counter.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(counter, ui.lpMargin(Theme.SPACE_12, 0));
         ui.body.addView(head, WordUi.lp());
 
         stage = ui.col();
@@ -166,6 +171,7 @@ public final class ExampleActivity extends ScreenActivity {
         exampleInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         exampleInput.setTypeface(Theme.SERIF);
         exampleInput.setTextSize(17);
+        exampleInput.setHint(SpellingActivity.sansHint("输入例句", 0));
         exampleInput.setGravity(Gravity.TOP | Gravity.START);
         exampleInput.setMinLines(3);
         exampleInput.setMaxLines(6);

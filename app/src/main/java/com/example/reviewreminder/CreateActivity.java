@@ -152,6 +152,7 @@ public final class CreateActivity extends ScreenActivity {
         sentence.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         sentence.setTypeface(Theme.SERIF);
         sentence.setTextSize(17);
+        sentence.setHint(SpellingActivity.sansHint("用 " + english + " 写一句英文", 0));
         sentence.setGravity(Gravity.TOP | Gravity.START);
         sentence.setMinLines(3);
         sentence.setMaxLines(6);
