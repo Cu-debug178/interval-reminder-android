@@ -647,8 +647,7 @@ public final class WordEditorActivity extends ScreenActivity {
             index=Math.min(index,words.length()-1);
             direction=0;
             show();
-            save(true);
-            ui.toast("已删除此卡");
+            if(save(true))ui.toast("已删除此卡");
         });
     }
 

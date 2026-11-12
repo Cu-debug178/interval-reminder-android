@@ -97,9 +97,8 @@ public final class CreateActivity extends ScreenActivity {
 
     /** "换一个词": a different word whenever there is more than one to choose from. */
     private void nextWord() {
-        // Abandon any grading still in flight for the word being left.
-        AiClient.cancel(pending);
-        pending = null;
+        // Grading still in flight for the word being left keeps running so a mistake is still
+        // recorded (as before the redesign); generation++ keeps its result off the new screen.
         int before = wordIndex;
         pickWord();
         for (int tries = 0; pool.length() > 1 && wordIndex == before && tries < 8; tries++) pickWord();
@@ -211,8 +210,7 @@ public final class CreateActivity extends ScreenActivity {
         String english = item.optString("english");
         pending = AiClient.chatJson(this, AiPrompts.systemCreateGrade(), AiPrompts.userCreateGrade(english, text), new AiClient.Callback() {
             @Override public void onResult(JSONObject json) {
-                // A request abandoned by "换一个词" may still complete; ignore it entirely.
-                if (token != generation) return;
+                if (isFinishing() || isDestroyed()) return;
                 boolean ok = json.optBoolean("ok", false);
                 String corrected = json.optString("corrected", text).trim();
                 String tip = json.optString("feedback", "").trim();
@@ -236,6 +234,12 @@ public final class CreateActivity extends ScreenActivity {
                     }
                 }
 
+                // The user moved on to another word: keep the recording, skip the stale screen update.
+                if (token != generation) {
+                    if (recorded) ui.toast("已记入造句问题，可在错题本查看");
+                    else if (recordError != null) ui.error(recordError);
+                    return;
+                }
                 busy(trigger, false);
                 renderResult(target, ok, tip, corrected, text, issues, recorded);
                 interaction.respond(trigger, ok ? Feedback.KNOWN : Feedback.RETRY);

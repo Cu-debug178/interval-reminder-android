@@ -1828,7 +1828,8 @@ public class MainActivity extends ScreenActivity {
         if(task==null)return;
         if(task.optInt("snoozes")>=2){toast("本次已延期两次，请完成复习");return;}
         String[] options={"15 分钟后","30 分钟后","1 小时后","下一个允许时间段"};
-        List<int[]> windows=Store.windows(task.optString("windows"));
+        List<int[]> windows;
+        try{windows=Store.windows(task.optString("windows"));}catch(Exception e){error("延期失败："+e.getMessage());return;}
         long now=System.currentTimeMillis();
         Sheet sheet=new Sheet(this).title("稍后提醒").message("本次还可以延期 "+(2-task.optInt("snoozes"))+" 次");
         for(int i=0;i<options.length;i++){
@@ -1892,7 +1893,9 @@ public class MainActivity extends ScreenActivity {
         body.addView(label,margins(-1,-2,0,Theme.SPACE_20,0,Theme.SPACE_4));
         body.addView(historyList(task.optJSONArray("history"),"暂无记录"),WordUi.lp());
         sheet.content(body);
-        if(!done){
+        // Same rule as before the redesign: only tasks due by the end of today can be completed or snoozed.
+        boolean dueToday=task.optLong("due")<shiftDay(dayStart(System.currentTimeMillis()),1);
+        if(!done&&dueToday){
             sheet.item(R.drawable.ic_circle_check,"完成本次复习",()->confirmComplete(id));
             sheet.item(R.drawable.ic_clock,"稍后提醒",()->snooze(id));
         }

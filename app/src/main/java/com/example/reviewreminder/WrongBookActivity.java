@@ -309,8 +309,11 @@ public final class WrongBookActivity extends ScreenActivity {
         final Future<?>[] req=new Future<?>[1];
         req[0]=AiClient.chatJson(this,AiPrompts.systemWrongAnalysis(),AiPrompts.userWrongAnalysis(word.optString("english"),word.optString("chinese"),word.optInt("wrongCount")),new AiClient.Callback(){
             @Override public void onResult(JSONObject json){
-                if(pending!=req[0])return;
-                aiBusy=false;
+                // The analysis is always saved to the word (as before the redesign), even if the
+                // sheet was closed while it was loading; only the sheet update is skipped then.
+                if(isFinishing()||isDestroyed())return;
+                boolean current=pending==req[0];
+                if(current)aiBusy=false;
                 String text="记忆钩子："+json.optString("hooks")+"\n易混点："+json.optString("confusion")+"\n建议："+json.optString("tip");
                 String saveError=null;
                 try{
@@ -327,6 +330,7 @@ public final class WrongBookActivity extends ScreenActivity {
                 }catch(Exception e){
                     saveError=message(e);
                 }
+                if(!current){if(saveError!=null)ui.error("分析未能保存："+saveError);else ui.toast("AI 分析已保存");render();return;}
                 LinearLayout content=ui.col();
                 content.addView(block("记忆钩子",json.optString("hooks"),false),WordUi.lp());
                 content.addView(block("易混点",json.optString("confusion"),false),blockLp());
@@ -341,7 +345,7 @@ public final class WrongBookActivity extends ScreenActivity {
                 fill(sheet,errorText(message));
             }
         });
-        track(sheet,req[0]);
+        track(sheet,req[0],false);
     }
 
     private void aiRoots(JSONObject word){
@@ -473,11 +477,13 @@ public final class WrongBookActivity extends ScreenActivity {
     }
 
     /** Remembers the in-flight request; closing the sheet cancels it and frees the busy guard. */
-    private void track(Sheet sheet,Future<?> req){
+    private void track(Sheet sheet,Future<?> req){track(sheet,req,true);}
+    /** @param cancel false keeps the request running after the sheet closes (results that are saved). */
+    private void track(Sheet sheet,Future<?> req,boolean cancel){
         pending=req;
         sheet.onDismiss(()->{
             if(pending!=req)return;
-            AiClient.cancel(req);
+            if(cancel)AiClient.cancel(req);
             pending=null;
             aiBusy=false;
         });
