@@ -50,6 +50,8 @@ final class Motion {
         v.animate().cancel();v.animate().alpha(0).translationX(-direction*16*d).setStartDelay(0).setDuration(Theme.LEAVE_MS).setInterpolator(EASE_IN).withEndAction(next).start();
     }
 
+    // ViewPropertyAnimator keeps the last start delay (enter()/stagger() set one), so every later
+    // animate() chain below resets it to stay immediate.
     /** Pressed state: ripple + a gentle 3% squeeze that springs back on release. */
     static void press(View v){press(v,.97f);}
     static void press(View v,float scale){
@@ -57,9 +59,9 @@ final class Motion {
         v.setOnTouchListener((view,event)->{
             int action=event.getActionMasked();
             if(action==MotionEvent.ACTION_DOWN&&view.isEnabled()&&enabled(view.getContext()))
-                view.animate().scaleX(scale).scaleY(scale).setDuration(90).setInterpolator(EASE).start();
+                view.animate().scaleX(scale).scaleY(scale).setStartDelay(0).setDuration(90).setInterpolator(EASE).start();
             else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)
-                view.animate().scaleX(1).scaleY(1).setDuration(enabled(view.getContext())?Theme.PRESS_MS+60:0).setInterpolator(EASE_OUT).start();
+                view.animate().scaleX(1).scaleY(1).setStartDelay(0).setDuration(enabled(view.getContext())?Theme.PRESS_MS+60:0).setInterpolator(EASE_OUT).start();
             return false;
         });
     }
@@ -68,7 +70,7 @@ final class Motion {
     static void layout(ViewGroup parent){if(enabled(parent.getContext())){TransitionSet t=new TransitionSet().setOrdering(TransitionSet.ORDERING_TOGETHER).addTransition(new ChangeBounds()).addTransition(new Fade());t.setDuration(Theme.ENTER_MS-20).setInterpolator(EASE);TransitionManager.beginDelayedTransition(parent,t);}}
 
     /** Rotates a chevron to show expanded/collapsed state. */
-    static void rotate(View v,float degrees){if(enabled(v.getContext()))v.animate().rotation(degrees).setDuration(Theme.ENTER_MS).setInterpolator(EASE).start();else v.setRotation(degrees);}
+    static void rotate(View v,float degrees){if(enabled(v.getContext()))v.animate().rotation(degrees).setStartDelay(0).setDuration(Theme.ENTER_MS).setInterpolator(EASE).start();else v.setRotation(degrees);}
 
     /** Counts a number up for statistics; respects reduced motion. */
     static void count(android.widget.TextView t,int to,String suffix){
@@ -77,5 +79,10 @@ final class Motion {
     }
 
     static void open(Activity a,android.content.Intent intent){a.startActivity(intent);if(enabled(a))a.overridePendingTransition(R.anim.page_in,R.anim.page_out);else a.overridePendingTransition(0,0);}
+    /**
+     * Forward step that replaces the current screen (review → spelling → example). finish() on a
+     * ScreenActivity issues the "back" transition, so the forward one is applied after it and wins.
+     */
+    static void replace(Activity a,android.content.Intent intent){a.startActivity(intent);a.finish();if(enabled(a))a.overridePendingTransition(R.anim.page_in,R.anim.page_out);else a.overridePendingTransition(0,0);}
     static void close(Activity a){if(enabled(a))a.overridePendingTransition(R.anim.page_return,R.anim.page_close);else a.overridePendingTransition(0,0);}
 }

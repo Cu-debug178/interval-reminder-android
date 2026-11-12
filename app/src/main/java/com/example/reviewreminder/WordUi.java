@@ -6,6 +6,8 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.AbsoluteSizeSpan;
@@ -87,13 +89,21 @@ final class WordUi {
         footer.removeAllViews();
         for(int i=0;i<views.length;i++){if(i>0)gap(footer,Theme.SPACE_8);footer.addView(views[i],lp());}
         footer.setVisibility(views.length==0?View.GONE:View.VISIBLE);
+        armFooter();
     }
     /** Two actions side by side in the footer: secondary left, primary right. */
     void pinPair(View secondary,View primary){
         footer.removeAllViews();LinearLayout r=row();
         LinearLayout.LayoutParams l=new LinearLayout.LayoutParams(0,-2,1);l.rightMargin=dp(Theme.SPACE_8);r.addView(secondary,l);
         r.addView(primary,new LinearLayout.LayoutParams(0,-2,1.4f));footer.addView(r,lp());footer.setVisibility(View.VISIBLE);
+        armFooter();
     }
+    /**
+     * Freshly swapped footer actions ignore touches for one enter beat, so a quick double tap on
+     * “显示答案” / “检查拼写” / “跳过” cannot land on the next step's buttons (and grade a card the
+     * user never saw). Applies even with motion off — it guards data, not animation.
+     */
+    private void armFooter(){if(footer instanceof Column)((Column)footer).arm(Theme.ENTER_MS+40);}
 
     static void systemBars(Activity a){
         a.getWindow().setStatusBarColor(Theme.BG);
@@ -163,7 +173,7 @@ final class WordUi {
         divide(group,icon!=0?Theme.ROW_PAD+Theme.ICON+Theme.SPACE_16:Theme.ROW_PAD);
         LinearLayout r=row();r.setMinimumHeight(dp(Theme.ROW_HEIGHT));r.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_12),dp(chevron?Theme.SPACE_12:Theme.ROW_PAD),dp(Theme.SPACE_12));
         if(icon!=0){ImageView i=icon(icon,Theme.INK_2);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(dp(Theme.ICON),dp(Theme.ICON));ip.rightMargin=dp(Theme.SPACE_16);r.addView(i,ip);}
-        LinearLayout copy=col();TextView t=type(title,Theme.T_BODY);t.setTypeface(Theme.MEDIUM);copy.addView(t);
+        LinearLayout copy=col();TextView t=type(title,Theme.T_BODY);t.setTypeface(Theme.MEDIUM);t.setMaxLines(2);t.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(t);
         if(subtitle!=null&&!subtitle.isEmpty()){TextView s=type(subtitle,Theme.T_CAPTION);s.setTextColor(Theme.INK_3);LinearLayout.LayoutParams sp=lp();sp.topMargin=dp(2);copy.addView(s,sp);}
         r.addView(copy,weight());
         if(trailing!=null&&!trailing.isEmpty()){TextView tr=type(trailing,Theme.T_CALLOUT);tr.setTextColor(Theme.INK_3);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.leftMargin=dp(Theme.SPACE_12);r.addView(tr,tp);}
@@ -179,12 +189,14 @@ final class WordUi {
     Switch switchRow(LinearLayout group,String label,String detail,boolean checked){
         divide(group,Theme.ROW_PAD);
         Switch s=new Switch(a);
-        CharSequence text=label;
-        if(detail!=null&&!detail.isEmpty()){
-            SpannableString sp=new SpannableString(label+"\n"+detail);int st=label.length()+1;
-            sp.setSpan(new AbsoluteSizeSpan(Theme.CAPTION_SIZE,true),st,sp.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            sp.setSpan(new ForegroundColorSpan(Theme.INK_3),st,sp.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            text=sp;
+        boolean hasDetail=detail!=null&&!detail.isEmpty();
+        // Row titles are medium everywhere (same as item()); the optional detail stays regular caption.
+        SpannableString text=new SpannableString(hasDetail?label+"\n"+detail:label);
+        text.setSpan(new android.text.style.TypefaceSpan("sans-serif-medium"),0,label.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if(hasDetail){
+            int st=label.length()+1;
+            text.setSpan(new AbsoluteSizeSpan(Theme.CAPTION_SIZE,true),st,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.setSpan(new ForegroundColorSpan(Theme.INK_3),st,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         s.setText(text);s.setTextSize(Theme.BODY_SIZE);s.setTextColor(Theme.INK);s.setTypeface(Theme.REGULAR);s.setLineSpacing(dp(2),1f);
         s.setMinHeight(dp(Theme.ROW_HEIGHT));s.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_12),dp(Theme.ROW_PAD),dp(Theme.SPACE_12));
@@ -196,6 +208,83 @@ final class WordUi {
 
     /** Switch row outside a group (wraps itself in a one-row group). */
     Switch switchRow(String label,String detail,boolean checked){LinearLayout g=group();Switch s=switchRow(g,label,detail,checked);body.addView(g,lp());gap(body,Theme.SPACE_8);return s;}
+
+    // ── Selection controls ──────────────────────────────────────────────────
+    /**
+     * Roomy single-choice row for a {@link RadioGroup}: white with a hairline, pine-tinted with a
+     * filled check when chosen. Optional {@code detail} becomes a smaller second line.
+     */
+    RadioButton choice(String label,String detail,int id){
+        RadioButton r=new RadioButton(a);
+        r.setId(id);
+        boolean hasDetail=detail!=null&&!detail.isEmpty();
+        if(hasDetail){
+            SpannableString text=new SpannableString(label+"\n"+detail);int st=label.length()+1;
+            text.setSpan(new AbsoluteSizeSpan(Theme.CAPTION_SIZE,true),st,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.setSpan(new ForegroundColorSpan(Theme.INK_3),st,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            r.setText(text);r.setLineSpacing(dp(2),1f);
+        }else r.setText(label);
+        r.setTextSize(16);
+        r.setTypeface(Theme.REGULAR);
+        r.setTextColor(new ColorStateList(new int[][]{{android.R.attr.state_checked},{}},new int[]{Theme.PRIMARY,Theme.INK}));
+        r.setButtonDrawable(null);
+        r.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);
+        int minHeight=dp(hasDetail?64:Theme.ROW_HEIGHT);r.setMinHeight(minHeight);r.setMinimumHeight(minHeight);
+        r.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_12),dp(Theme.ROW_PAD),dp(Theme.SPACE_12));
+
+        int size=dp(20);
+        GradientDrawable ring=Theme.oval(Color.TRANSPARENT);
+        ring.setStroke(Math.max(1,dp(1.5f)),Theme.alpha(Theme.INK_3,.7f));
+        Drawable tick=a.getDrawable(R.drawable.ic_check).mutate();tick.setTint(Color.WHITE);
+        LayerDrawable filled=new LayerDrawable(new Drawable[]{Theme.oval(Theme.PRIMARY),tick});
+        int inset=dp(4);filled.setLayerInset(1,inset,inset,inset,inset);
+        StateListDrawable mark=new StateListDrawable();
+        mark.addState(new int[]{android.R.attr.state_checked},filled);
+        mark.addState(new int[]{},ring);
+        mark.setBounds(0,0,size,size);
+        r.setCompoundDrawablesRelative(null,null,mark,null);
+        r.setCompoundDrawablePadding(dp(Theme.SPACE_12));
+
+        StateListDrawable bg=new StateListDrawable();
+        bg.setEnterFadeDuration(Theme.PRESS_MS);bg.setExitFadeDuration(Theme.PRESS_MS);
+        bg.addState(new int[]{android.R.attr.state_checked},Theme.shape(a,Theme.PRIMARY_SOFT,Theme.RADIUS_BUTTON));
+        bg.addState(new int[]{},Theme.shape(a,Theme.SURFACE,Theme.RADIUS_BUTTON,Theme.HAIRLINE,1));
+        Theme.applyRipple(r,bg,Theme.RIPPLE_ACCENT);
+        // The chosen row reads medium. RadioGroup tracks checks through a hidden widget listener,
+        // so this public listener does not interfere with it.
+        r.setOnCheckedChangeListener((b,on)->b.setTypeface(on?Theme.MEDIUM:Theme.REGULAR));
+        Motion.press(r,.985f);
+        return r;
+    }
+
+    /** Quiet checkbox: a small rounded square on the content edge, pine with a white check when on. */
+    CheckBox check(String label,boolean checked){
+        CheckBox c=new CheckBox(a);
+        c.setText(label);
+        c.setButtonDrawable(null);
+        int size=dp(20);
+        GradientDrawable box=Theme.shape(a,Color.TRANSPARENT,5);
+        box.setStroke(Math.max(1,dp(1.5f)),Theme.alpha(Theme.INK_3,.7f));
+        Drawable tick=a.getDrawable(R.drawable.ic_check).mutate();tick.setTint(Color.WHITE);
+        LayerDrawable filled=new LayerDrawable(new Drawable[]{Theme.shape(a,Theme.PRIMARY,5),tick});
+        int inset=dp(3);filled.setLayerInset(1,inset,inset,inset,inset);
+        StateListDrawable mark=new StateListDrawable();
+        mark.setEnterFadeDuration(Theme.PRESS_MS/2);mark.setExitFadeDuration(Theme.PRESS_MS/2);
+        mark.addState(new int[]{android.R.attr.state_checked},filled);
+        mark.addState(new int[]{},box);
+        mark.setBounds(0,0,size,size);
+        c.setCompoundDrawablesRelative(mark,null,null,null);
+        c.setCompoundDrawablePadding(dp(Theme.SPACE_12));
+        c.setPadding(0,0,0,0);
+        c.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);
+        c.setTextSize(Theme.CALLOUT_SIZE);c.setTextColor(Theme.INK_2);c.setTypeface(Theme.REGULAR);
+        c.setMinHeight(dp(Theme.TOUCH));c.setMinimumHeight(dp(Theme.TOUCH));
+        c.setChecked(checked);
+        c.setOnCheckedChangeListener((b,on)->Feedback.tick(b));
+        Theme.applyRipple(c,null,Theme.RIPPLE_LIGHT);
+        Motion.press(c,.985f);
+        return c;
+    }
 
     // ── Buttons ───────────────────────────────────────────────────────────────
     /** Backward-compatible: primary=true → filled; false → quiet secondary. */
@@ -358,6 +447,12 @@ final class WordUi {
         private int baseLeft,baseRight;private boolean based;
         Column(Context c){super(c);setOrientation(VERTICAL);}
         @Override public void setPadding(int l,int t,int r,int b){baseLeft=l;baseRight=r;based=true;super.setPadding(l,t,r,b);}
+        /** Until this uptime, touches on the column and its children are swallowed (see {@link WordUi#pin}). */
+        private long armedUntil;
+        void arm(int ms){armedUntil=android.os.SystemClock.uptimeMillis()+ms;}
+        private boolean armed(){return android.os.SystemClock.uptimeMillis()<armedUntil;}
+        @Override public boolean onInterceptTouchEvent(android.view.MotionEvent e){return armed()||super.onInterceptTouchEvent(e);}
+        @Override public boolean onTouchEvent(android.view.MotionEvent e){if(armed())return true;return super.onTouchEvent(e);}
         @Override protected void onMeasure(int w,int h){
             if(based&&MeasureSpec.getMode(w)!=MeasureSpec.UNSPECIFIED){
                 int max=(int)(600*getResources().getDisplayMetrics().density);

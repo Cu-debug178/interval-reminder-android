@@ -31,7 +31,7 @@
     </style>
 
     <style name="SheetDialog" parent="@android:style/Theme.Material.Light.Dialog.NoActionBar">
-        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowIsFloating">false</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowAnimationStyle">@style/SheetAnimation</item>
         <item name="android:backgroundDimEnabled">true</item>

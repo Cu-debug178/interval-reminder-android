@@ -5,6 +5,7 @@ import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -34,10 +35,20 @@ final class Sheet {
     private TextView titleView,messageView;
     private Button primary,secondary;
     private boolean stacked;
+    /** Sheets currently on screen; a sheet opened over another one skips the second dim layer. */
+    private static final java.util.Map<Sheet,Boolean> open=new java.util.WeakHashMap<>();
+    private Runnable userDismiss;
+    /** Mirrors the platform's cancelable / close-on-touch-outside pair (the window is full screen, so
+     *  Dialog itself never sees an "outside" touch; the scrim below handles it). */
+    private boolean cancelable=true,closeOnTouchOutside;
 
     Sheet(Activity a){
         this.a=a;
-        dialog=new Dialog(a,R.style.SheetDialog);
+        dialog=new Dialog(a,R.style.SheetDialog){
+            @Override public void setCancelable(boolean c){super.setCancelable(c);cancelable=c;}
+            // Same rule as Dialog: asking to close on outside touch also makes the dialog cancelable.
+            @Override public void setCanceledOnTouchOutside(boolean c){super.setCanceledOnTouchOutside(c);closeOnTouchOutside=c;if(c)cancelable=true;}
+        };
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         panel=new LinearLayout(a);panel.setOrientation(LinearLayout.VERTICAL);
         panel.setBackground(Theme.topRounded(a,Theme.SURFACE,Theme.RADIUS_SHEET));
@@ -51,19 +62,48 @@ final class Sheet {
         list=col();list.setPadding(dp(8),dp(4),dp(8),0);list.setVisibility(View.GONE);inner.addView(list);
         scroll.addView(inner);
         panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        buttons=new LinearLayout(a);buttons.setOrientation(LinearLayout.HORIZONTAL);buttons.setPadding(dp(20),dp(16),dp(20),dp(4));buttons.setVisibility(View.GONE);panel.addView(buttons);
+        buttons=new LinearLayout(a);buttons.setOrientation(LinearLayout.HORIZONTAL);buttons.setPadding(dp(24),dp(16),dp(24),dp(4));buttons.setVisibility(View.GONE);panel.addView(buttons);
+        // Full-screen, non-floating window: the panel sits flush on the navigation bar (painted the
+        // sheet's white) instead of stopping above it, and is capped at a readable width on tablets.
         // Weighted scroll would collapse in WRAP_CONTENT; a max-height wrapper keeps long sheets scrollable.
-        dialog.setContentView(new MaxHeight(a,panel));
+        MaxHeight sheetView=new MaxHeight(a,panel);
+        Scrim root=new Scrim(a,sheetView);
+        float widthDp=a.getResources().getDisplayMetrics().widthPixels/a.getResources().getDisplayMetrics().density;
+        root.addView(sheetView,new FrameLayout.LayoutParams(widthDp>600?dp(600):ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
+        dialog.setContentView(root);
         dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnDismissListener(d->{open.remove(this);if(userDismiss!=null)userDismiss.run();});
         Window w=dialog.getWindow();
         if(w!=null){
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT);
             w.setGravity(Gravity.BOTTOM);
             w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);w.setDimAmount(.32f);
             w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             if(!Motion.enabled(a))w.setWindowAnimations(0);
+            w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            w.setStatusBarColor(Color.TRANSPARENT);
             if(android.os.Build.VERSION.SDK_INT>=26)w.setNavigationBarColor(Theme.SURFACE);
+            w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|(android.os.Build.VERSION.SDK_INT>=26?0x10:0));
+        }
+    }
+
+    /**
+     * Transparent full-window layer around the panel. A tap that starts and ends outside the panel
+     * cancels the sheet (when the dialog allows it); touches inside the panel that no control takes
+     * are swallowed so they never fall through. Deliberately not "clickable", so it adds no
+     * accessibility node and no ripple.
+     */
+    private final class Scrim extends FrameLayout {
+        private final View sheetView;private boolean downOutside;
+        Scrim(Activity a,View sheetView){super(a);this.sheetView=sheetView;}
+        private boolean outside(MotionEvent e){return e.getY()<sheetView.getTop()||e.getX()<sheetView.getLeft()||e.getX()>=sheetView.getRight();}
+        @Override public boolean onTouchEvent(MotionEvent e){
+            int action=e.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN)downOutside=outside(e);
+            else if(action==MotionEvent.ACTION_UP){if(downOutside&&outside(e)&&cancelable&&closeOnTouchOutside)dialog.cancel();downOutside=false;}
+            else if(action==MotionEvent.ACTION_CANCEL)downOutside=false;
+            return true;
         }
     }
 
@@ -143,8 +183,18 @@ final class Sheet {
     }
 
     Sheet cancelable(boolean on){dialog.setCancelable(on);dialog.setCanceledOnTouchOutside(on);return this;}
-    Sheet onDismiss(Runnable r){dialog.setOnDismissListener(d->r.run());return this;}
-    Sheet show(){if(!a.isFinishing())dialog.show();return this;}
+    Sheet onDismiss(Runnable r){userDismiss=r;return this;}
+    Sheet show(){
+        if(a.isFinishing())return this;
+        if(!dialog.isShowing()){
+            boolean nested=false;
+            for(Sheet s:open.keySet())if(s!=this&&s.a==a&&s.isShowing()){nested=true;break;}
+            Window w=dialog.getWindow();if(w!=null)w.setDimAmount(nested?0f:.32f);
+            dialog.show();
+            if(dialog.isShowing())open.put(this,Boolean.TRUE);
+        }else dialog.show();
+        return this;
+    }
     void dismiss(){dialog.dismiss();}
     boolean isShowing(){return dialog.isShowing();}
 
