@@ -7,7 +7,11 @@ import android.graphics.Paint;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextWatcher;
+import android.text.style.AbsoluteSizeSpan;
+import android.text.style.TypefaceSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -82,6 +86,8 @@ public final class SpellingActivity extends ScreenActivity {
             }
             chrome();
             show(false);
+            // The review round was saved just before this screen opened; confirm it here, in-app.
+            if (state == null && historyAt > 0 && round > 0) ui.body.post(() -> ui.toast("第 " + round + " 轮已记录"));
         } catch (Exception e) {
             // Finish first so the notice falls back to a system toast and survives the exit.
             finish();
@@ -110,18 +116,20 @@ public final class SpellingActivity extends ScreenActivity {
         ui.startModal("拼写练习");
         Notice.setBottomOffset(this, 84);
 
+        // Same header as review and the sense quiz: the line first, then a quiet tabular counter.
         head = ui.col();
+        progress = new ProgressLine(this);
+        head.addView(progress, WordUi.lp());
         LinearLayout line = ui.row();
-        counter = ui.type("", Theme.T_CAPTION);
-        counter.setTypeface(Theme.MEDIUM);
+        line.setMinimumHeight(ui.dp(28));
+        counter = ui.type("", Theme.T_CALLOUT);
         counter.setTextColor(Theme.INK_2);
+        counter.setFontFeatureSettings("tnum");
         line.addView(counter, WordUi.weight());
         tally = ui.type("", Theme.T_CAPTION);
+        tally.setFontFeatureSettings("tnum");
         line.addView(tally);
-        head.addView(line, WordUi.lp());
-        ui.gap(head, Theme.SPACE_8);
-        progress = new ProgressLine(this);
-        head.addView(progress, new LinearLayout.LayoutParams(-1, ui.dp(3)));
+        head.addView(line, ui.lpMargin(Theme.SPACE_12, 0));
         ui.body.addView(head, WordUi.lp());
 
         stage = ui.col();
@@ -184,6 +192,8 @@ public final class SpellingActivity extends ScreenActivity {
         answer.setImeOptions(EditorInfo.IME_ACTION_DONE);
         answer.setTypeface(Theme.SERIF);
         answer.setTextSize(24);
+        // Serif is for the typed word; the Chinese prompt stays in the UI sans at body size.
+        answer.setHint(sansHint("输入英文单词", 16));
         answer.setGravity(Gravity.CENTER);
         answer.setPadding(ui.dp(Theme.SPACE_16), 0, ui.dp(Theme.SPACE_16), 0);
         answer.setSelection(answer.getText().length());
@@ -405,10 +415,16 @@ public final class SpellingActivity extends ScreenActivity {
 
     private void continueAfterSpelling() {
         int[] missing = ExampleActivity.missingExampleIndices(words, exampleIndices);
-        if (missing.length > 0) {
-            Motion.open(this, new Intent(this, ExampleActivity.class).putExtra("taskId", taskId).putExtra("indices", missing));
+        if (missing.length == 0) {
+            finish();
+            return;
         }
+        // A forward step in the same flow: hand over to the example editor with the forward page
+        // motion. finish() installs the "return" animation, so re-assert the forward pair after it.
+        startActivity(new Intent(this, ExampleActivity.class).putExtra("taskId", taskId).putExtra("indices", missing));
         finish();
+        if (Motion.enabled(this)) overridePendingTransition(R.anim.page_in, R.anim.page_out);
+        else overridePendingTransition(0, 0);
     }
 
     private void saveResult() {
@@ -448,6 +464,14 @@ public final class SpellingActivity extends ScreenActivity {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /** Hint in the UI sans face (optionally at a fixed dp size) for fields that type in serif. */
+    static CharSequence sansHint(String text, int sizeDp) {
+        SpannableString hint = new SpannableString(text);
+        hint.setSpan(new TypefaceSpan("sans-serif"), 0, hint.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if (sizeDp > 0) hint.setSpan(new AbsoluteSizeSpan(sizeDp, true), 0, hint.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return hint;
+    }
 
     /** Hides the target word (and its inflections) inside the example so it hints without telling. */
     private static String cloze(String example, String english) {
