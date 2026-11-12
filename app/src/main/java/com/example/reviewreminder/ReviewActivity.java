@@ -850,43 +850,7 @@ public final class ReviewActivity extends ScreenActivity {
     }
 
     /** A roomy selectable row: white with a hairline, pine-tinted with a filled mark when chosen. */
-    private RadioButton choiceRow(String label,int id){
-        RadioButton r=new RadioButton(this);
-        r.setId(id);
-        r.setText(label);
-        r.setTextSize(16);
-        r.setTypeface(Theme.REGULAR);
-        r.setTextColor(new ColorStateList(new int[][]{{android.R.attr.state_checked},{}},new int[]{Theme.PRIMARY,Theme.INK}));
-        r.setButtonDrawable(null);
-        r.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);
-        r.setMinHeight(ui.dp(Theme.ROW_HEIGHT));
-        r.setMinimumHeight(ui.dp(Theme.ROW_HEIGHT));
-        r.setPadding(ui.dp(Theme.ROW_PAD),ui.dp(Theme.SPACE_12),ui.dp(Theme.ROW_PAD),ui.dp(Theme.SPACE_12));
-
-        int size=ui.dp(20);
-        GradientDrawable ring=Theme.oval(Color.TRANSPARENT);
-        ring.setStroke(Math.max(1,ui.dp(1.5f)),Theme.alpha(Theme.INK_3,.7f));
-        Drawable check=getDrawable(R.drawable.ic_check).mutate();
-        check.setTint(Color.WHITE);
-        LayerDrawable filled=new LayerDrawable(new Drawable[]{Theme.oval(Theme.PRIMARY),check});
-        int inset=ui.dp(4);
-        filled.setLayerInset(1,inset,inset,inset,inset);
-        StateListDrawable mark=new StateListDrawable();
-        mark.addState(new int[]{android.R.attr.state_checked},filled);
-        mark.addState(new int[]{},ring);
-        mark.setBounds(0,0,size,size);
-        r.setCompoundDrawablesRelative(null,null,mark,null);
-        r.setCompoundDrawablePadding(ui.dp(Theme.SPACE_12));
-
-        StateListDrawable bg=new StateListDrawable();
-        bg.setEnterFadeDuration(Theme.PRESS_MS);
-        bg.setExitFadeDuration(Theme.PRESS_MS);
-        bg.addState(new int[]{android.R.attr.state_checked},Theme.shape(this,Theme.PRIMARY_SOFT,Theme.RADIUS_BUTTON));
-        bg.addState(new int[]{},Theme.shape(this,Theme.SURFACE,Theme.RADIUS_BUTTON,Theme.HAIRLINE,1));
-        Theme.applyRipple(r,bg,Theme.RIPPLE_ACCENT);
-        Motion.press(r,.985f);
-        return r;
-    }
+    private RadioButton choiceRow(String label,int id){return ui.choice(label,null,id);}
 
     private static void paintChoices(RadioGroup group){
         for(int i=0;i<group.getChildCount();i++){
@@ -895,31 +859,13 @@ public final class ReviewActivity extends ScreenActivity {
         }
     }
 
-    private CheckBox checkBox(String label,boolean checked){
-        CheckBox box=new CheckBox(this);
-        box.setText(label);
-        box.setChecked(checked);
-        box.setTextSize(Theme.CALLOUT_SIZE);
-        box.setTextColor(Theme.INK_2);
-        box.setTypeface(Theme.REGULAR);
-        box.setButtonTintList(ColorStateList.valueOf(Theme.PRIMARY));
-        box.setMinHeight(ui.dp(Theme.TOUCH));
-        box.setMinimumHeight(ui.dp(Theme.TOUCH));
-        box.setPadding(ui.dp(Theme.SPACE_8),0,0,0);
-        box.setOnCheckedChangeListener((b,on)->Feedback.tick(b));
-        return box;
-    }
+    private CheckBox checkBox(String label,boolean checked){return ui.check(label,checked);}
 
     /**
      * A forward step that replaces this screen. finish() plays the "back" transition, so the
      * forward one is applied last and the next page keeps sliding in from the trailing edge.
      */
-    private void forward(Intent next){
-        startActivity(next);
-        finish();
-        if(Motion.enabled(this))overridePendingTransition(R.anim.page_in,R.anim.page_out);
-        else overridePendingTransition(0,0);
-    }
+    private void forward(Intent next){Motion.replace(this,next);}
 
     private void complete(int spellingMode){
         if(completed)return;

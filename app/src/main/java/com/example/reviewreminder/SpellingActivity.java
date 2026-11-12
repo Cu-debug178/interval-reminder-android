@@ -421,10 +421,7 @@ public final class SpellingActivity extends ScreenActivity {
         }
         // A forward step in the same flow: hand over to the example editor with the forward page
         // motion. finish() installs the "return" animation, so re-assert the forward pair after it.
-        startActivity(new Intent(this, ExampleActivity.class).putExtra("taskId", taskId).putExtra("indices", missing));
-        finish();
-        if (Motion.enabled(this)) overridePendingTransition(R.anim.page_in, R.anim.page_out);
-        else overridePendingTransition(0, 0);
+        Motion.replace(this, new Intent(this, ExampleActivity.class).putExtra("taskId", taskId).putExtra("indices", missing));
     }
 
     private void saveResult() {

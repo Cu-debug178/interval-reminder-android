@@ -369,16 +369,7 @@ public class MainActivity extends ScreenActivity {
         return t;
     }
 
-    private CheckBox checkBox(String label){
-        CheckBox c=new CheckBox(this);
-        c.setText(label);
-        c.setTextSize(Theme.CALLOUT_SIZE);
-        c.setTextColor(Theme.INK_2);
-        c.setTypeface(Theme.REGULAR);
-        c.setMinHeight(dp(Theme.TOUCH));
-        c.setOnCheckedChangeListener((b,on)->Feedback.tick(b));
-        return c;
-    }
+    private CheckBox checkBox(String label){return ui.check(label,false);}
 
     private TextView inlineError(){
         TextView t=ui.type("",Theme.T_CALLOUT);
@@ -494,7 +485,7 @@ public class MainActivity extends ScreenActivity {
         LinearLayout page=ui.col();
         if(setupStep==0){
             setupQuestion(page,"你每天什么时候方便复习？","可以添加多个时段。点击开始和结束时间，用系统时间选择器设置。");
-            setupPicker=new TimeWindowPicker(this,setupWindows,()->{});
+            setupPicker=new TimeWindowPicker(this,setupWindows,()->{}).onSurface();
             page.addView(setupPicker.view(),margins(-1,-2,0,Theme.SPACE_16,0,0));
             ui.note(page,"不添加时段表示全天都可以提醒。跨午夜时段也可以设置。");
             setupDontRemind=checkBox("不再显示首次设置引导");
@@ -527,27 +518,7 @@ public class MainActivity extends ScreenActivity {
     }
 
     /** Roomy radio option: outlined card that turns pine-tinted when checked. */
-    private RadioButton choiceRow(int id,String label,String detail){
-        RadioButton r=new RadioButton(this);
-        r.setId(id);
-        SpannableString text=new SpannableString(label+"\n"+detail);
-        int start=label.length()+1;
-        text.setSpan(new AbsoluteSizeSpan(Theme.CAPTION_SIZE,true),start,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        text.setSpan(new ForegroundColorSpan(Theme.INK_3),start,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        r.setText(text);
-        r.setTextSize(Theme.BODY_SIZE);
-        r.setTextColor(Theme.INK);
-        r.setTypeface(Theme.REGULAR);
-        r.setLineSpacing(dp(2),1f);
-        r.setMinHeight(dp(64));
-        r.setPadding(dp(8),dp(12),dp(16),dp(12));
-        StateListDrawable bg=new StateListDrawable();
-        bg.addState(new int[]{android.R.attr.state_checked},Theme.shape(this,Theme.PRIMARY_SOFT,Theme.RADIUS_FIELD,Theme.PRIMARY,1));
-        bg.addState(new int[]{},Theme.shape(this,Theme.SURFACE,Theme.RADIUS_FIELD,Theme.HAIRLINE,1));
-        Theme.applyRipple(r,bg,Theme.RIPPLE_ACCENT);
-        Motion.press(r,.985f);
-        return r;
-    }
+    private RadioButton choiceRow(int id,String label,String detail){return ui.choice(label,detail,id);}
 
     private void showSetupError(String message){if(setupError!=null)showInline(setupError,message);else error(message);}
 
