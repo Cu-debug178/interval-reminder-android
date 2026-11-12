@@ -44,7 +44,9 @@ public final class ReviewActivity extends ScreenActivity {
     private int expectedStage,mode,forceMode=-1,lastAutoSpoken=-1;
     private JSONArray words;
     private ReviewSession session;
-    private boolean revealed,completed,changing,ttsReady,active=true,practice;
+    private boolean revealed,completed,changing,ttsReady,active=true,practice,taskDone,aiBusy;
+    /** The word group's own name, so the session reads as this task rather than a generic drill. */
+    private String taskTitle="复习";
     private String pendingSpeech,pendingExample;
     private TextToSpeech tts;
     private final Feedback interaction=new Feedback();
@@ -81,6 +83,9 @@ public final class ReviewActivity extends ScreenActivity {
             if(task==null)throw new Exception("任务不存在");
             words=task.getJSONArray("words");
             if(words.length()==0)throw new Exception("词组为空");
+            String title=task.optString("title").trim();
+            if(!title.isEmpty())taskTitle=title;
+            taskDone=task.optBoolean("done");
             expectedStage=state==null?task.optInt("stage"):state.getInt("stage");
             mode=Store.prefs(this).getInt("reviewMode",0);
             seed=state==null?System.nanoTime():state.getLong("seed");
@@ -139,7 +144,7 @@ public final class ReviewActivity extends ScreenActivity {
         box.addView(dontRemind,WordUi.lp());
         new Sheet(this)
             .title("退出本轮复习？")
-            .message("单词修改已保存，但本轮不会标记完成。")
+            .message("已答单词的掌握度会保留，但本轮不会记为完成。")
             .content(box)
             .secondary("继续复习",null)
             .primary("退出",()->{
@@ -203,7 +208,7 @@ public final class ReviewActivity extends ScreenActivity {
 
     /** Top bar, progress and an empty stage; built once per pass so cards can change in place. */
     private void buildSession(){
-        ui.startModal(practice?"任意复习":"快速复习",R.drawable.ic_ellipsis,"更多",v->more());
+        ui.startModal(practice?"任意复习":taskTitle,R.drawable.ic_ellipsis,"更多",v->more());
         ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_4),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_12));
 
         progress=new ProgressLine(this);
@@ -217,6 +222,7 @@ public final class ReviewActivity extends ScreenActivity {
         counter.setFontFeatureSettings("tnum");
         meta.addView(counter,WordUi.weight());
         if(practice)meta.addView(ui.chip("不计计划轮次",Theme.SUNK,Theme.INK_2));
+        else if(!taskDone)meta.addView(ui.chip("第 "+(expectedStage+1)+" 轮",Theme.SUNK,Theme.INK_2));
         ui.body.addView(meta,ui.lpMargin(Theme.SPACE_12,0));
 
         deck=new FrameLayout(this);
@@ -271,7 +277,10 @@ public final class ReviewActivity extends ScreenActivity {
         card.setPadding(ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_20));
         card.setBackground(Theme.shape(this,Theme.SURFACE,24));
 
-        TextView overline=ui.type(zh?"中文释义":"英文单词",Theme.T_OVERLINE);
+        // A forgotten card returns later in the queue (and the total grows); saying so keeps
+        // the counter's jump from reading as an error.
+        String side=zh?"中文释义":"英文单词";
+        TextView overline=ui.type(session.attemptsForCurrent()>0?"再看一次 · "+side:side,Theme.T_OVERLINE);
         overline.setGravity(Gravity.CENTER);
         card.addView(overline,WordUi.lp());
 
@@ -538,7 +547,7 @@ public final class ReviewActivity extends ScreenActivity {
     private void summary(){
         sessionChrome=false;
         cardView=null;
-        ui.startModal(practice?"练习结束":"本轮已看完");
+        ui.startModal(practice?"任意复习":taskTitle);
         LinearLayout body=ui.body;
 
         JSONObject task=Store.find(Store.tasks(this),id);
@@ -551,7 +560,7 @@ public final class ReviewActivity extends ScreenActivity {
         halo.setBackground(Theme.oval(Theme.PRIMARY_SOFT));
         halo.addView(ui.icon(R.drawable.ic_circle_check,Theme.PRIMARY),new FrameLayout.LayoutParams(ui.dp(30),ui.dp(30),Gravity.CENTER));
         hero.addView(halo,new LinearLayout.LayoutParams(ui.dp(68),ui.dp(68)));
-        TextView title=ui.type(practice?"这次练习结束了":"这一轮看完了",Theme.T_TITLE);
+        TextView title=ui.type(practice?"这次练习结束了":"本轮已看完",Theme.T_TITLE);
         title.setGravity(Gravity.CENTER);
         hero.addView(title,ui.lpMargin(Theme.SPACE_20,0));
         TextView sentenceLine=ui.type("共 "+words.length()+" 个单词，标记“忘记了” "+session.repeats()+" 次",Theme.T_CALLOUT);
@@ -597,7 +606,8 @@ public final class ReviewActivity extends ScreenActivity {
         LinearLayout links=ui.row();
         links.setGravity(Gravity.CENTER);
         Button moreOptions=ui.textButton("更多选项",v->summaryMore());
-        Button home=ui.textButton("返回主页",v->finish());
+        // Leaving an eligible round asks first, exactly like ✕ and system back.
+        Button home=ui.textButton("返回主页",v->{if(eligible)onBackPressed();else finish();});
         home.setTextColor(Theme.INK_2);
         links.addView(moreOptions);
         View dot=new View(this);
@@ -608,11 +618,23 @@ public final class ReviewActivity extends ScreenActivity {
         links.addView(dot,dotLp);
         links.addView(home);
 
-        if(eligible)ui.pin(ui.primaryButton("完成本轮并选择拼写",v->chooseSpelling()),ui.secondaryButton(againLabel,again),links);
+        if(eligible)ui.pin(ui.primaryButton(completeLabel(),v->chooseSpelling()),ui.secondaryButton(againLabel,again),links);
         else ui.pin(ui.primaryButton(againLabel,again),links);
 
         Motion.stagger(body);
         syncNoticeOffset();
+    }
+
+    /** Names what the completion action will actually do, given the saved spelling default. */
+    private String completeLabel(){
+        SharedPreferences prefs=Store.prefs(this);
+        if(!prefs.getBoolean("spellingConfigured",false)||prefs.getBoolean("askSpellingMode",false))return "完成本轮并选择拼写";
+        int saved=prefs.getInt("spellingMode",SpellingPlan.NONE);
+        if(saved==SpellingPlan.ALL)return "完成并拼写";
+        if(saved==SpellingPlan.WRONG_ONLY)return "完成并拼写错词";
+        // complete() still adds this round's forgotten words when that option is on.
+        if(prefs.getBoolean("spellForgottenWords",false)&&session.repeats()>0)return "完成并拼写忘记的词";
+        return "完成本轮";
     }
 
     /** One line under the numbers that says what happens next. */
@@ -691,11 +713,9 @@ public final class ReviewActivity extends ScreenActivity {
             int icon=label.startsWith("换向")?R.drawable.ic_repeat:label.startsWith("错词")?R.drawable.ic_target:R.drawable.ic_sparkles;
             sheet.item(icon,label,()->{
                 if(label.startsWith("换向")){
-                    Motion.open(this,new Intent(this,ReviewActivity.class).putExtra("taskId",id).putExtra("forceMode",flipTo).putExtra("practice",practice));
-                    finish();
+                    forward(new Intent(this,ReviewActivity.class).putExtra("taskId",id).putExtra("forceMode",flipTo).putExtra("practice",practice));
                 }else if(label.startsWith("错词")){
-                    Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",id).putExtra("wrongOnly",true));
-                    finish();
+                    forward(new Intent(this,SenseQuizActivity.class).putExtra("taskId",id).putExtra("wrongOnly",true));
                 }else aiSummary();
             });
         }
@@ -703,7 +723,9 @@ public final class ReviewActivity extends ScreenActivity {
     }
 
     private void aiSummary(){
+        if(aiBusy)return;
         if(!AiSettings.ready(this)){ui.toast(AiSettings.notReadyMessage(this));return;}
+        JSONObject payload;
         try{
             JSONArray weak=new JSONArray();
             int[] missed=session.missedIndices();
@@ -711,14 +733,45 @@ public final class ReviewActivity extends ScreenActivity {
                 JSONObject w=words.optJSONObject(index);
                 if(w!=null)weak.put(w.optString("english"));
             }
-            JSONObject payload=new JSONObject()
+            payload=new JSONObject()
                 .put("total",words.length())
                 .put("forgotten",session.repeats())
                 .put("weakWords",weak)
                 .put("avgMastery",Mastery.average(words));
-            ui.toast("正在生成复盘…");
-            pendingAi=AiClient.chatJson(this,AiPrompts.systemReviewSummary(),AiPrompts.userReviewSummary(payload.toString()),new AiClient.Callback(){
+        }catch(Exception e){
+            ui.error(e.getMessage());
+            return;
+        }
+
+        // The sheet opens at once with a quiet loading state; the result replaces it in place.
+        // AiClient.cancel() only interrupts the worker, so late callbacks are filtered by identity.
+        LinearLayout loading=ui.col();
+        loading.setGravity(Gravity.CENTER_HORIZONTAL);
+        loading.setPadding(0,ui.dp(Theme.SPACE_12),0,ui.dp(Theme.SPACE_8));
+        TextView status=ui.type("正在生成…",Theme.T_CALLOUT);
+        status.setGravity(Gravity.CENTER);
+        loading.addView(status,WordUi.lp());
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(true);
+        bar.setIndeterminateTintList(ColorStateList.valueOf(Theme.PRIMARY));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(Theme.SUNK));
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(ui.dp(140),ui.dp(4));
+        bp.topMargin=ui.dp(Theme.SPACE_12);
+        loading.addView(bar,bp);
+
+        aiBusy=true;
+        final java.util.concurrent.Future<?>[] req=new java.util.concurrent.Future<?>[1];
+        Sheet sheet=new Sheet(this).title("AI 本轮复盘").content(loading).secondary("关闭",null);
+        sheet.onDismiss(()->{
+            if(pendingAi==req[0]){AiClient.cancel(pendingAi);pendingAi=null;}
+            aiBusy=false;
+        });
+        sheet.show();
+        try{
+            req[0]=AiClient.chatJson(this,AiPrompts.systemReviewSummary(),AiPrompts.userReviewSummary(payload.toString()),new AiClient.Callback(){
                 @Override public void onResult(JSONObject json){
+                    if(pendingAi!=req[0]||!sheet.isShowing())return;
+                    aiBusy=false;
                     String body=json.optString("summary","")+"\n\n下一步："+json.optString("next","");
                     JSONArray weakList=json.optJSONArray("weak");
                     if(weakList!=null&&weakList.length()>0){
@@ -729,11 +782,22 @@ public final class ReviewActivity extends ScreenActivity {
                         }
                         body=w+"\n\n"+body;
                     }
-                    new Sheet(ReviewActivity.this).title("AI 本轮复盘").message(body.trim()).primary("关闭",null).show();
+                    TextView text=ui.type(body.trim(),Theme.T_BODY);
+                    Motion.layout(sheet.body);
+                    sheet.clearContent().content(text);
                 }
-                @Override public void onError(String message){ui.error(message);}
+                @Override public void onError(String message){
+                    if(pendingAi!=req[0]||!sheet.isShowing())return;
+                    aiBusy=false;
+                    TextView error=ui.type(message,Theme.T_CALLOUT);
+                    error.setTextColor(Theme.DANGER);
+                    Motion.layout(sheet.body);
+                    sheet.clearContent().content(error);
+                }
             });
+            pendingAi=req[0];
         }catch(Exception e){
+            sheet.dismiss();
             ui.error(e.getMessage());
         }
     }
@@ -749,7 +813,7 @@ public final class ReviewActivity extends ScreenActivity {
         LinearLayout content=ui.col();
         RadioGroup choices=new RadioGroup(this);
         choices.setOrientation(RadioGroup.VERTICAL);
-        String[] labels={"拼写全部单词","拼写本词组错题本中的错词","不进行拼写"};
+        String[] labels={"拼写全部单词","拼写本词组错题本中的错词","不拼写"};
         for(int i=0;i<labels.length;i++){
             RadioGroup.LayoutParams p=new RadioGroup.LayoutParams(-1,-2);
             if(i>0)p.topMargin=ui.dp(Theme.SPACE_8);
@@ -767,9 +831,9 @@ public final class ReviewActivity extends ScreenActivity {
 
         Sheet sheet=new Sheet(this);
         sheet.title(configured?"完成并选择拼写":"设置复习后的拼写")
-            .message("选择后会保存为默认方式。以后可在“我的 > 复习与拼写”调整。")
+            .message("会保存为默认方式，可在「我的 › 复习与拼写」修改。")
             .content(content)
-            .secondary("继续练习",null);
+            .secondary("取消",null);
         sheet.primaryIf("完成本轮",()->{
             int selected=choices.getCheckedRadioButtonId();
             if(selected<0){ui.toast("请选择一种拼写方式");return false;}
@@ -846,6 +910,17 @@ public final class ReviewActivity extends ScreenActivity {
         return box;
     }
 
+    /**
+     * A forward step that replaces this screen. finish() plays the "back" transition, so the
+     * forward one is applied last and the next page keeps sliding in from the trailing edge.
+     */
+    private void forward(Intent next){
+        startActivity(next);
+        finish();
+        if(Motion.enabled(this))overridePendingTransition(R.anim.page_in,R.anim.page_out);
+        else overridePendingTransition(0,0);
+    }
+
     private void complete(int spellingMode){
         if(completed)return;
         try{
@@ -889,14 +964,15 @@ public final class ReviewActivity extends ScreenActivity {
                     .putExtra("indices",indices)
                     .putExtra("historyAt",now)
                     .putExtra("exampleIndices",examples);
-                Motion.open(this,nextStep);
-                finish();
+                forward(nextStep);
             }else if(examples.length>0){
-                Motion.open(this,new Intent(this,ExampleActivity.class).putExtra("taskId",id).putExtra("indices",examples));
+                forward(new Intent(this,ExampleActivity.class).putExtra("taskId",id).putExtra("indices",examples).putExtra("notice","第 "+next+" 轮已记录"));
+            }else{
+                String msg=task.optBoolean("done")?"已完成全部 "+next+" 轮":"已完成第 "+next+" 轮 · 下次 "+when(task.optLong("due"));
                 finish();
-            }else finish();
-            // Shown after finish() so it survives the transition as a system toast.
-            ui.toast("本轮复习已完成");
+                // Shown after finish() so it survives the transition as a system toast.
+                ui.toast(msg);
+            }
         }catch(Exception e){
             ui.error("保存失败："+e.getMessage());
         }
