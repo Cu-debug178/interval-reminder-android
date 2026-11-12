@@ -591,7 +591,11 @@ public class MainActivity extends ScreenActivity {
     // ══ Permission guide (Sheet) ══════════════════════════════════════════════
     private void showPermissionGuide(){showPermissionGuide(false);}
 
-    /** @param force true when the user asked (banner tap) — then the "don't show" preference does not hide it. */
+    /**
+     * @param force true when the user explicitly asked (home banner tap). Intentional change from the
+     *              old design: the "不再显示此权限说明" preference only suppresses the automatic guide,
+     *              so a deliberate tap on the banner is never a dead no-op.
+     */
     private void showPermissionGuide(boolean force){
         if(!force&&Store.prefs(this).getBoolean("dontShowPermissionGuide",false))return;
         if(permissionDialog!=null&&permissionDialog.isShowing())return;
@@ -1875,6 +1879,10 @@ public class MainActivity extends ScreenActivity {
         body.addView(label,margins(-1,-2,0,Theme.SPACE_20,0,Theme.SPACE_4));
         body.addView(historyList(task.optJSONArray("history"),"暂无记录"),WordUi.lp());
         sheet.content(body);
+        if(!done){
+            sheet.item(R.drawable.ic_circle_check,"完成本次复习",()->confirmComplete(id));
+            sheet.item(R.drawable.ic_clock,"稍后提醒",()->snooze(id));
+        }
         sheet.secondary("关闭",null);
         sheet.danger("删除任务",()->Sheet.confirm(this,"删除任务？","删除后无法恢复。到期提醒也会一并取消。","保留","删除",true,()->delete(id)));
         sheet.show();
@@ -1941,7 +1949,12 @@ public class MainActivity extends ScreenActivity {
             if(t.optLong("id")!=id)out.put(t);
             else title=t.optString("title");
         }
-        Store.save(this,out);
+        try{
+            Store.save(this,out);
+        }catch(Exception e){
+            error("删除失败："+e.getMessage());
+            return;
+        }
         Alarms.cancel(this,id);
         renderAtScroll();
         toast(title.isEmpty()?"任务已删除":"已删除「"+title+"」");
