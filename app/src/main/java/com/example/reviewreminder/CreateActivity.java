@@ -97,6 +97,9 @@ public final class CreateActivity extends ScreenActivity {
 
     /** "换一个词": a different word whenever there is more than one to choose from. */
     private void nextWord() {
+        // Abandon any grading still in flight for the word being left.
+        AiClient.cancel(pending);
+        pending = null;
         int before = wordIndex;
         pickWord();
         for (int tries = 0; pool.length() > 1 && wordIndex == before && tries < 8; tries++) pickWord();
@@ -207,6 +210,8 @@ public final class CreateActivity extends ScreenActivity {
         String english = item.optString("english");
         pending = AiClient.chatJson(this, AiPrompts.systemCreateGrade(), AiPrompts.userCreateGrade(english, text), new AiClient.Callback() {
             @Override public void onResult(JSONObject json) {
+                // A request abandoned by "换一个词" may still complete; ignore it entirely.
+                if (token != generation) return;
                 boolean ok = json.optBoolean("ok", false);
                 String corrected = json.optString("corrected", text).trim();
                 String tip = json.optString("feedback", "").trim();
@@ -231,21 +236,18 @@ public final class CreateActivity extends ScreenActivity {
                 }
 
                 busy(trigger, false);
-                if (token == generation) {
-                    renderResult(target, ok, tip, corrected, text, issues, recorded);
-                    interaction.respond(trigger, ok ? Feedback.KNOWN : Feedback.RETRY);
-                }
+                renderResult(target, ok, tip, corrected, text, issues, recorded);
+                interaction.respond(trigger, ok ? Feedback.KNOWN : Feedback.RETRY);
                 if (recorded) ui.toast("已记入造句问题，可在错题本查看");
                 else if (recordError != null) ui.error(recordError);
             }
 
             @Override public void onError(String message) {
+                if (token != generation) return;
                 busy(trigger, false);
-                if (token == generation) {
-                    Motion.layout(ui.body);
-                    target.removeAllViews();
-                    target.setVisibility(View.GONE);
-                }
+                Motion.layout(ui.body);
+                target.removeAllViews();
+                target.setVisibility(View.GONE);
                 ui.error(message);
             }
         });

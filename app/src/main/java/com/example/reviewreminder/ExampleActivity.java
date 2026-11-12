@@ -205,6 +205,8 @@ public final class ExampleActivity extends ScreenActivity {
         busy(trigger, true);
         pending = AiClient.chatJson(this, AiPrompts.systemExample(), AiPrompts.userExample(word.optString("english"), word.optString("chinese")), new AiClient.Callback() {
             @Override public void onResult(JSONObject json) {
+                // A request abandoned on advance may still complete; ignore it entirely.
+                if (position != at) return;
                 busy(trigger, false);
                 String value = json.optString("example", "").trim();
                 if (value.isEmpty()) {
@@ -212,7 +214,7 @@ public final class ExampleActivity extends ScreenActivity {
                     return;
                 }
                 // Only fill the field the request was made for; the user may have moved on.
-                if (exampleInput != null && position == at) {
+                if (exampleInput != null) {
                     exampleInput.setText(value);
                     exampleInput.setSelection(exampleInput.getText().length());
                     draft = value;
@@ -221,6 +223,7 @@ public final class ExampleActivity extends ScreenActivity {
                 }
             }
             @Override public void onError(String message) {
+                if (position != at) return;
                 busy(trigger, false);
                 ui.error(message);
             }
@@ -260,6 +263,9 @@ public final class ExampleActivity extends ScreenActivity {
     }
 
     private void advance() {
+        // Abandon any AI example still in flight for the word being left.
+        AiClient.cancel(pending);
+        pending = null;
         position++;
         draft = "";
         hideKeyboard(exampleInput);
