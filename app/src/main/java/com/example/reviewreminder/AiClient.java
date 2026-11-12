@@ -27,21 +27,29 @@ final class AiClient {
     }
 
     static Future<?> chatVisionJson(Context context,String system,String user,String mime,String base64,Callback callback){
-        return chat(context,system,user,mime,base64,callback);
+        return chat(context,system,user,mime,base64==null||base64.isEmpty()?null:new String[]{base64},callback);
     }
 
-    private static Future<?> chat(Context context,String system,String user,String mime,String base64,Callback callback){
+    static Future<?> chatVisionJson(Context context,String system,String user,String mime,String[] base64Images,Callback callback){
+        return chat(context,system,user,mime,base64Images,callback);
+    }
+
+    private static Future<?> chat(Context context,String system,String user,String mime,String[] base64Images,Callback callback){
         Context app=context.getApplicationContext();
         AtomicBoolean cancelled=new AtomicBoolean(false);
         return WORKER.submit(()->{
             try{
                 if(!AiSettings.ready(app))throw new IllegalStateException(AiSettings.notReadyMessage(app));
                 Object userContent=user;
-                if(base64!=null&&!base64.isEmpty()){
+                if(base64Images!=null&&base64Images.length>0){
                     String type=mime==null||mime.isEmpty()?"image/jpeg":mime;
-                    userContent=new JSONArray()
-                        .put(new JSONObject().put("type","text").put("text",user))
-                        .put(new JSONObject().put("type","image_url").put("image_url",new JSONObject().put("url","data:"+type+";base64,"+base64)));
+                    JSONArray parts=new JSONArray().put(new JSONObject().put("type","text").put("text",user));
+                    for(String base64:base64Images){
+                        if(base64==null||base64.isEmpty())continue;
+                        parts.put(new JSONObject().put("type","image_url").put("image_url",new JSONObject().put("url","data:"+type+";base64,"+base64)));
+                    }
+                    if(parts.length()==1)throw new IllegalStateException("没有可用的照片");
+                    userContent=parts;
                 }
                 JSONObject body=new JSONObject()
                     .put("model",AiSettings.model(app))

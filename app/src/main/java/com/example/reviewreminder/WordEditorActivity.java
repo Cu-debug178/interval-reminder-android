@@ -19,24 +19,44 @@ public final class WordEditorActivity extends ScreenActivity {
     private void show(){
         index=Math.max(0,Math.min(index,words.length()-1));
         if(taskId==0&&quickReview&&!editingIssue){showQuickCard();return;}
-        ui.start(taskId==0?(quickReview?"修改单词卡":"校对单词卡"):"编辑单词卡");ui.body.addView(ui.text((index+1)+" / "+words.length()+" 张",14,WordUi.MUTED));ui.gap(ui.body,12);
+        ui.start(taskId==0?(quickReview?"修改单词卡":"校对单词卡"):"编辑单词卡");
+        LinearLayout navigation=ui.row();
+        Button prev=ui.textButton("上一张",v->move(-1));prev.setEnabled(index>0);prev.setAlpha(index>0?1:.4f);
+        TextView progress=ui.text((index+1)+" / "+words.length()+" 张",14,WordUi.MUTED);progress.setGravity(Gravity.CENTER);
+        Button next=ui.textButton("下一张",v->move(1));next.setEnabled(index<words.length()-1);next.setAlpha(index<words.length()-1?1:.4f);
+        navigation.addView(prev);navigation.addView(progress,new LinearLayout.LayoutParams(0,-2,1));navigation.addView(next);
+        ui.body.addView(navigation);ui.gap(ui.body,12);
         if(taskId==0&&!quickReview){title=ui.field("词组名称",document.optString("title"),1);String source=document.optString("source");if(!source.isEmpty()){ui.body.addView(ui.text(source,12,WordUi.MUTED));ui.gap(ui.body,12);}}
-        JSONObject word=words.optJSONObject(index);english=ui.field("英文单词",word.optString("english"),1);english.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);chinese=ui.field("中文释义（可含 n./v. 等词性，用分号分隔）",word.optString("chinese"),2);example=ui.field("例句（可留空）",word.optString("example"),2);
+        JSONObject word=words.optJSONObject(index);english=ui.field("英文单词",word.optString("english"),1);english.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        chinese=ui.field("中文释义（可含 n./v. 等词性，用分号分隔）",word.optString("chinese"),2);
+        LinearLayout senseRow=ui.row();
         try{Senses.ensure(word);}catch(Exception ignored){}
-        ui.body.addView(ui.text("义项："+(Senses.labelJoin(Senses.of(word)).isEmpty()?"尚未拆分，保存释义后自动识别":Senses.labelJoin(Senses.of(word))),12,WordUi.MUTED));ui.gap(ui.body,8);
-        ui.body.addView(ui.button("编辑词性义项",false,v->editSenses()));ui.gap(ui.body,8);
-        ui.body.addView(ui.button("AI 生成例句",false,v->aiExample()));ui.gap(ui.body,10);
-        LinearLayout navigation=ui.row();Button prev=ui.button("上一张",false,v->move(-1));prev.setEnabled(index>0);prev.setAlpha(index>0?1:.45f);LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=ui.dp(8);navigation.addView(prev,left);Button next=ui.button("下一张",true,v->move(1));next.setEnabled(index<words.length()-1);next.setAlpha(index<words.length()-1?1:.45f);navigation.addView(next,new LinearLayout.LayoutParams(0,-2,1));ui.body.addView(navigation);ui.gap(ui.body,10);
-        ui.body.addView(ui.button("卡片列表",false,v->{if(!save(true))return;String[] labels=new String[words.length()];for(int i=0;i<words.length();i++)labels[i]=(i+1)+". "+words.optJSONObject(i).optString("english","未填写");new AlertDialog.Builder(this).setTitle("选择单词卡").setItems(labels,(d,w)->{index=w;show();}).show();}));ui.gap(ui.body,8);
-        LinearLayout more=ui.row();LinearLayout.LayoutParams moreLeft=new LinearLayout.LayoutParams(0,-2,1);moreLeft.rightMargin=ui.dp(8);more.addView(ui.button("添加卡片",false,v->{if(!save(true))return;try{words.put(new JSONObject().put("english","").put("chinese","").put("example",""));index=words.length()-1;show();}catch(Exception e){ui.toast(e.getMessage());}}),moreLeft);more.addView(ui.button("删除此卡",false,v->remove()),new LinearLayout.LayoutParams(0,-2,1));ui.body.addView(more);ui.gap(ui.body,10);
+        String senseLabel=Senses.labelJoin(Senses.of(word));
+        TextView sense=ui.text(senseLabel.isEmpty()?"义项将在保存后自动拆分":"义项："+senseLabel,12,WordUi.MUTED);
+        senseRow.addView(sense,new LinearLayout.LayoutParams(0,-2,1));
+        senseRow.addView(ui.textButton("编辑词性义项",v->editSenses()));
+        ui.body.addView(senseRow);ui.gap(ui.body,8);
+        example=ui.field("例句（可留空）",word.optString("example"),2);
+        LinearLayout exampleRow=ui.row();exampleRow.setGravity(Gravity.END);
+        exampleRow.addView(ui.textButton("AI 生成例句",v->aiExample()));
+        ui.body.addView(exampleRow);ui.gap(ui.body,16);
         String saveLabel=taskId==0?(quickReview?"保存并返回确认":"保存词组并开始计划"):"保存修改";
-        ui.body.addView(ui.button(saveLabel,true,v->{if(!save(true))return;if(taskId==0&&quickReview){editingIssue=false;clearFields();show();}else if(taskId==0)finishProof();else{ui.toast("单词卡已保存");finish();}}));Motion.enter(ui.body,direction);direction=0;
+        ui.body.addView(ui.button(saveLabel,true,v->{if(!save(true))return;if(taskId==0&&quickReview){editingIssue=false;clearFields();show();}else if(taskId==0)finishProof();else{ui.toast("单词卡已保存");finish();}}));ui.gap(ui.body,4);
+        ui.body.addView(ui.textButton("更多操作",v->moreActions()));Motion.enter(ui.body,direction);direction=0;
+    }
+    private void moreActions(){
+        String[] items={"卡片列表","添加卡片","删除此卡"};
+        new AlertDialog.Builder(this).setTitle("更多操作").setItems(items,(d,which)->{
+            if(which==0){if(!save(true))return;String[] labels=new String[words.length()];for(int i=0;i<words.length();i++)labels[i]=(i+1)+". "+words.optJSONObject(i).optString("english","未填写");new AlertDialog.Builder(this).setTitle("选择单词卡").setItems(labels,(dialog,w)->{index=w;show();}).show();}
+            else if(which==1){if(!save(true))return;try{words.put(new JSONObject().put("english","").put("chinese","").put("example",""));index=words.length()-1;show();}catch(Exception e){ui.toast(e.getMessage());}}
+            else remove();
+        }).setNegativeButton("取消",null).show();
     }
     private void showQuickCard(){
         clearFields();ui.start("快速确认");
         TextView progress=ui.text("第 "+(index+1)+" 张，共 "+words.length()+" 张",14,WordUi.MUTED);progress.setGravity(Gravity.CENTER);ui.body.addView(progress);ui.gap(ui.body,20);
         JSONObject word=words.optJSONObject(index);if(word==null)word=new JSONObject();
-        LinearLayout card=ui.col();card.setGravity(Gravity.CENTER_HORIZONTAL);card.setPadding(ui.dp(22),ui.dp(30),ui.dp(22),ui.dp(28));card.setBackground(ui.bg(0xFFFFFFFF,24));
+        LinearLayout card=ui.card();card.setGravity(Gravity.CENTER_HORIZONTAL);card.setPadding(ui.dp(20),ui.dp(24),ui.dp(20),ui.dp(24));
         TextView englishCard=ui.text(word.optString("english",""),30,WordUi.INK);englishCard.setGravity(Gravity.CENTER);englishCard.setTypeface(null,1);card.addView(englishCard,new LinearLayout.LayoutParams(-1,-2));
         View divider=new View(this);divider.setBackgroundColor(0xFFE6EEEA);LinearLayout.LayoutParams dividerLp=new LinearLayout.LayoutParams(ui.dp(48),ui.dp(1));dividerLp.topMargin=ui.dp(20);dividerLp.bottomMargin=ui.dp(18);card.addView(divider,dividerLp);
         TextView chineseCard=ui.text(word.optString("chinese",""),21,WordUi.GREEN);chineseCard.setGravity(Gravity.CENTER);card.addView(chineseCard,new LinearLayout.LayoutParams(-1,-2));

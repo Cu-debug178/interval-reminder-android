@@ -10,10 +10,13 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,42 +24,60 @@ import java.util.concurrent.Future;
 
 public final class ImportActivity extends ScreenActivity {
     private WordUi ui;private EditText source;private Future<?> pending;private boolean busy;
-    private File cameraPhoto;private final ExecutorService worker=Executors.newSingleThreadExecutor();
+    private File cameraPhoto;private final List<File> pendingPhotos=new ArrayList<>();
+    private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private boolean alive(){return !isFinishing()&&!isDestroyed();}
     @Override public void onCreate(Bundle state){
         super.onCreate(state);ui=new WordUi(this);
-        if(state!=null){String camera=state.getString("camera");if(camera!=null)cameraPhoto=new File(camera);}
+        if(state!=null){
+            String camera=state.getString("camera");if(camera!=null)cameraPhoto=new File(camera);
+            ArrayList<String> paths=state.getStringArrayList("pendingPhotos");
+            if(paths!=null)for(String path:paths)pendingPhotos.add(new File(path));
+        }
         home();
     }
     @Override public void onSaveInstanceState(Bundle out){
         super.onSaveInstanceState(out);
         if(cameraPhoto!=null)out.putString("camera",cameraPhoto.getAbsolutePath());
+        ArrayList<String> paths=new ArrayList<>();
+        for(File photo:pendingPhotos)paths.add(photo.getAbsolutePath());
+        out.putStringArrayList("pendingPhotos",paths);
     }
     @Override protected void onDestroy(){AiClient.cancel(pending);worker.shutdownNow();super.onDestroy();}
 
     private void home(){
         busy=false;source=null;ui.start("录词");
-        ui.body.addView(ui.text("可拍照/选图走云端识词，或粘贴词表后用 AI 整理；也支持本地解析与手动添加。",13,WordUi.MUTED));ui.gap(ui.body,14);
-        ui.body.addView(ui.button("拍摄单词照片（云端识别）",true,v->camera()));ui.gap(ui.body,10);
-        ui.body.addView(ui.button("从相册选择照片（云端识别）",false,v->{
-            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+        ui.body.addView(ui.text("可多张拍照/选图云端识词，或粘贴词表后整理。",13,WordUi.MUTED));ui.gap(ui.body,14);
+        if(!pendingPhotos.isEmpty()){
+            ui.body.addView(ui.text("已选 "+pendingPhotos.size()+" 张照片，可继续添加或开始识别。",14,WordUi.GREEN));ui.gap(ui.body,10);
+            LinearLayout batch=ui.row();
+            LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=ui.dp(8);
+            batch.addView(ui.button("开始云端识别",true,v->cloudRecognizeAll()),left);
+            batch.addView(ui.button("清空照片",false,v->{pendingPhotos.clear();home();}),new LinearLayout.LayoutParams(0,-2,1));
+            ui.body.addView(batch);ui.gap(ui.body,14);
+        }
+        ui.body.addView(ui.button("拍摄单词照片",true,v->camera()));ui.gap(ui.body,8);
+        ui.body.addView(ui.ghostButton("从相册选择（可多选）",v->{
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);
             try{startActivityForResult(i,10);}catch(Exception e){ui.toast("没有可用的图片选择器");}
-        }));ui.gap(ui.body,18);
-        source=ui.field("词表原文","",8);
-        source.setHint("例如：\nambition n. 野心\nconquer v. 征服\n或一行一个英文单词");
-        ui.body.addView(ui.button("AI 整理成单词卡",true,v->aiImport()));ui.gap(ui.body,10);
-        ui.body.addView(ui.button("本地解析并校对",false,v->localImport()));ui.gap(ui.body,18);
-        if(Words.hasDraft(this)){ui.body.addView(ui.button("继续校对草稿",false,v->edit()));ui.gap(ui.body,10);}
-        ui.body.addView(ui.button("打开 Lesson 1 词组",false,v->{new AlertDialog.Builder(this).setTitle("打开 Lesson 1？").setMessage("将用内置 42 张卡替换当前草稿，不影响已创建的任务。仍建议校对。").setNegativeButton("取消",null).setPositiveButton("打开",(d,w)->{try{Words.lesson(this);edit();}catch(Exception e){ui.toast(e.getMessage());}}).show();}));
-        ui.gap(ui.body,10);ui.body.addView(ui.button("手动添加一组单词",false,v->edit()));
-        ui.gap(ui.body,18);
+        }));ui.gap(ui.body,20);
+        source=ui.field("词表原文","",6);
+        source.setHint("例如：\nambition n. 野心\nconquer v. 征服");
+        ui.body.addView(ui.button("AI 整理成单词卡",false,v->aiImport()));ui.gap(ui.body,8);
+        if(Words.hasDraft(this)){ui.body.addView(ui.button("继续校对草稿",false,v->edit()));ui.gap(ui.body,8);}
+        ui.body.addView(ui.textButton("更多录入方式",v->moreImportOptions()));ui.gap(ui.body,12);
         String tip=AiSettings.ready(this)
-            ?(AiSettings.provider(this)==AiSettings.PROVIDER_MIMO||AiSettings.model(this).toLowerCase().contains("mimo")
-                ?"AI 已配置。照片识词建议用小米 MiMo（支持看图）。"
-                :"AI 已配置。照片识词需看图模型（推荐小米 MiMo）；纯文本整理可用当前模型。")
-            :"未开启 AI 时仍可用本地解析或手动添加。照片识词请到「我的 > AI」配置小米 MiMo。";
+            ?"AI 已配置。多图识词建议用小米 MiMo。"
+            :"未开启 AI 时可用本地解析或手动添加。照片识词请到「我的 > AI」配置。";
         ui.body.addView(ui.text(tip,13,WordUi.MUTED));
         Motion.enter(ui.body);
+    }
+
+    private void moreImportOptions(){
+        String[] items={"本地解析并校对","手动添加一组单词"};
+        new AlertDialog.Builder(this).setTitle("更多录入方式").setItems(items,(d,which)->{
+            if(which==0)localImport();else edit();
+        }).setNegativeButton("取消",null).show();
     }
 
     private void edit(){
@@ -89,21 +110,33 @@ public final class ImportActivity extends ScreenActivity {
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK)return;
         if(request==11){
-            if(cameraPhoto!=null&&cameraPhoto.length()>0)cloudRecognize(cameraPhoto);
-            else ui.toast("没有收到拍摄照片");
-        }else if(request==10&&data!=null&&data.getData()!=null){
+            if(cameraPhoto!=null&&cameraPhoto.length()>0){
+                pendingPhotos.add(cameraPhoto);cameraPhoto=null;home();
+                ui.toast("已加入照片，共 "+pendingPhotos.size()+" 张");
+            }else ui.toast("没有收到拍摄照片");
+        }else if(request==10&&data!=null){
             if(!AiSettings.ready(this)){ui.toast(AiSettings.notReadyMessage(this));return;}
-            Uri uri=data.getData();
-            loading("正在读取照片…");
+            List<Uri> uris=new ArrayList<>();
+            if(data.getClipData()!=null){
+                ClipData clip=data.getClipData();
+                for(int i=0;i<clip.getItemCount();i++)uris.add(clip.getItemAt(i).getUri());
+            }else if(data.getData()!=null)uris.add(data.getData());
+            if(uris.isEmpty()){ui.toast("没有选中照片");return;}
+            if(uris.size()>12){ui.toast("一次最多 12 张，请分批选择");return;}
+            loading("正在读取 "+uris.size()+" 张照片…");
             worker.execute(()->{
                 try{
-                    File local=newPhoto("photo-");
-                    try(InputStream in=getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(local)){
-                        if(in==null)throw new IOException("无法读取照片");
-                        byte[] b=new byte[65536];int n;long size=0;
-                        while((n=in.read(b))!=-1){size+=n;if(size>40*1024*1024)throw new IOException("请选取小于 40 MB 的照片");out.write(b,0,n);}
+                    List<File> copied=new ArrayList<>();
+                    for(Uri uri:uris){
+                        File local=newPhoto("photo-");
+                        try(InputStream in=getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(local)){
+                            if(in==null)throw new IOException("无法读取照片");
+                            byte[] b=new byte[65536];int n;long size=0;
+                            while((n=in.read(b))!=-1){size+=n;if(size>40*1024*1024)throw new IOException("请选取小于 40 MB 的照片");out.write(b,0,n);}
+                        }
+                        copied.add(local);
                     }
-                    runOnUiThread(()->cloudRecognize(local));
+                    runOnUiThread(()->{pendingPhotos.addAll(copied);home();ui.toast("已加入 "+copied.size()+" 张，共 "+pendingPhotos.size()+" 张");});
                 }catch(Exception e){runOnUiThread(()->{home();ui.toast(e.getMessage());});}
             });
         }
@@ -111,21 +144,27 @@ public final class ImportActivity extends ScreenActivity {
 
     private void loading(String label){ui.start(label);ui.body.addView(new ProgressBar(this));busy=true;}
 
-    private void cloudRecognize(File photo){
-        if(!alive())return;
-        if(!AiSettings.ready(this)){home();ui.toast(AiSettings.notReadyMessage(this));return;}
+    private void cloudRecognizeAll(){
+        if(!alive()||pendingPhotos.isEmpty())return;
+        if(!AiSettings.ready(this)){ui.toast(AiSettings.notReadyMessage(this));return;}
+        final List<File> photos=new ArrayList<>(pendingPhotos);
         loading("云端识别中");
-        ui.body.addView(ui.text("正在把照片发给模型识词，请稍候…",14,WordUi.MUTED));
+        ui.body.addView(ui.text("正在识别 "+photos.size()+" 张照片…",14,WordUi.MUTED));
         worker.execute(()->{
             try{
-                String base64=encodeJpegBase64(photo);
+                List<String> encoded=new ArrayList<>();
+                for(File photo:photos)encoded.add(encodeJpegBase64(photo));
+                String[] images=encoded.toArray(new String[0]);
+                JSONArray paths=new JSONArray();for(File photo:photos)paths.put(photo.getAbsolutePath());
                 runOnUiThread(()->{
                     if(!alive())return;
-                    pending=AiClient.chatVisionJson(this,AiPrompts.systemPhotoImport(),AiPrompts.userPhotoImport(),"image/jpeg",base64,new AiClient.Callback(){
+                    pending=AiClient.chatVisionJson(this,AiPrompts.systemPhotoImport(),AiPrompts.userPhotoImportMany(photos.size()),"image/jpeg",images,new AiClient.Callback(){
                         @Override public void onResult(JSONObject json){
                             if(!alive())return;busy=false;
-                            try{applyAiWords(json,photo.getAbsolutePath(),"云端识图草稿，待校对");}
-                            catch(Exception e){home();ui.toast("识别失败："+e.getMessage());}
+                            try{
+                                applyAiWords(json,paths,"云端识图草稿，待校对");
+                                pendingPhotos.clear();
+                            }catch(Exception e){home();ui.toast("识别失败："+e.getMessage());}
                         }
                         @Override public void onError(String message){if(!alive())return;busy=false;home();ui.toast(message);}
                     });
@@ -164,7 +203,7 @@ public final class ImportActivity extends ScreenActivity {
             String raw=source==null?"":source.getText().toString();
             JSONArray found=Words.array(WordParser.parse(raw));
             if(found.length()==0){ui.toast("未解析出单词，可改用 AI 整理或手动添加");return;}
-            saveDraft(found,"","本地解析草稿，待校对");edit();
+            saveDraft(found,new JSONArray(),"本地解析草稿，待校对");edit();
         }catch(Exception e){ui.toast("解析失败："+e.getMessage());}
     }
 
@@ -177,14 +216,14 @@ public final class ImportActivity extends ScreenActivity {
         pending=AiClient.chatJson(this,AiPrompts.systemImport(),AiPrompts.userImport(raw),new AiClient.Callback(){
             @Override public void onResult(JSONObject json){
                 if(!alive())return;busy=false;
-                try{applyAiWords(json,"","AI 整理草稿，待校对");}
+                try{applyAiWords(json,new JSONArray(),"AI 整理草稿，待校对");}
                 catch(Exception e){home();ui.toast("整理失败："+e.getMessage());}
             }
             @Override public void onError(String message){if(!alive())return;busy=false;home();ui.toast(message);}
         });
     }
 
-    private void applyAiWords(JSONObject json,String photoPath,String sourceLabel)throws Exception{
+    private void applyAiWords(JSONObject json,JSONArray photoPaths,String sourceLabel)throws Exception{
         JSONArray words=json.optJSONArray("words");
         if(words==null||words.length()==0)throw new Exception("模型没有返回单词卡");
         JSONArray cleaned=new JSONArray();
@@ -198,16 +237,19 @@ public final class ImportActivity extends ScreenActivity {
             cleaned.put(card);
         }
         if(cleaned.length()==0)throw new Exception("模型返回的卡片无效");
-        saveDraft(cleaned,photoPath,sourceLabel);
+        saveDraft(cleaned,photoPaths==null?new JSONArray():photoPaths,sourceLabel);
         ui.toast("已生成 "+cleaned.length()+" 张单词卡");home();edit();
     }
 
-    private void saveDraft(JSONArray words,String photoPath,String sourceLabel)throws Exception{
-        JSONObject draft=Words.draft(this);
-        draft.put("words",words).put("rawOcr","").put("source",sourceLabel);
+    private void applyAiWords(JSONObject json,String photoPath,String sourceLabel)throws Exception{
         JSONArray photos=new JSONArray();
         if(photoPath!=null&&!photoPath.isEmpty())photos.put(photoPath);
-        draft.put("photos",photos);
+        applyAiWords(json,photos,sourceLabel);
+    }
+
+    private void saveDraft(JSONArray words,JSONArray photos,String sourceLabel)throws Exception{
+        JSONObject draft=Words.draft(this);
+        draft.put("words",words).put("rawOcr","").put("source",sourceLabel).put("photos",photos==null?new JSONArray():photos);
         if(draft.optString("title","").trim().isEmpty())draft.put("title","");
         Words.writeDraft(this,draft);
     }

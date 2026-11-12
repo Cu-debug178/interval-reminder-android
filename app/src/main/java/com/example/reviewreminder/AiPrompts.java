@@ -18,6 +18,7 @@ final class AiPrompts {
             "只提取词汇条目；忽略页眉页脚；多义项写入 senses；没有则空字符串。";
     }
     static String userPhotoImport(){return "请识别这张单词表/教材照片中的单词卡。";}
+    static String userPhotoImportMany(int count){return "请识别这 "+count+" 张单词表/教材照片中的全部单词卡，合并去重后输出。";}
 
     static String systemExample(){
         return "你是英语例句助手。根据英文单词与中文释义生成一条自然、难度适中的例句。"+JSON_ONLY+

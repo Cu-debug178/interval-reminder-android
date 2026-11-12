@@ -68,16 +68,15 @@ public final class WrongBookActivity extends ScreenActivity {
 
         LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);
         actions.addView(ui().button("拼写此词",true,v->{Intent intent=new Intent(this,SpellingActivity.class).putExtra("taskId",task.optLong("id")).putExtra("indices",new int[]{index}).putExtra("round",-1).putExtra("attemptId",UUID.randomUUID().toString());startActivity(intent);}),new LinearLayout.LayoutParams(0,dp(50),1));
-        android.widget.Button sense=ui().button("义项练习",false,v->startActivity(new Intent(this,SenseQuizActivity.class).putExtra("taskId",task.optLong("id")).putExtra("wrongOnly",true)));
-        LinearLayout.LayoutParams senseLp=new LinearLayout.LayoutParams(0,dp(50),1);senseLp.leftMargin=dp(8);actions.addView(sense,senseLp);
-        android.widget.Button clear=ui().button("清除记录",false,v->new AlertDialog.Builder(this).setTitle("清除错词记录？").setMessage("单词卡会保留，只清除错误次数和轮次记录。").setNegativeButton("取消",null).setPositiveButton("清除",(d,w)->{try{WrongBook.clear(this,task.optLong("id"),index);render();}catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}}).show());
-        LinearLayout.LayoutParams clearLp=new LinearLayout.LayoutParams(0,dp(50),1);clearLp.leftMargin=dp(8);actions.addView(clear,clearLp);card.addView(actions);
-
-        LinearLayout aiRow=new LinearLayout(this);aiRow.setPadding(0,dp(8),0,0);
-        aiRow.addView(ui().button("AI 分析",false,v->aiAnalyze(task.optLong("id"),index,word)),new LinearLayout.LayoutParams(0,dp(48),1));
-        LinearLayout.LayoutParams mid=new LinearLayout.LayoutParams(0,dp(48),1);mid.leftMargin=dp(8);
-        aiRow.addView(ui().button("词根对比",false,v->aiRoots(word)),mid);
-        card.addView(aiRow);
+        LinearLayout.LayoutParams moreLp=new LinearLayout.LayoutParams(0,dp(50),1);moreLp.leftMargin=dp(8);
+        long taskId=task.optLong("id");
+        actions.addView(ui().button("更多",false,v->new AlertDialog.Builder(this).setTitle(word.optString("english")).setItems(new CharSequence[]{"义项练习","AI 分析","词根对比","清除记录"},(d,which)->{
+            if(which==0)startActivity(new Intent(this,SenseQuizActivity.class).putExtra("taskId",taskId).putExtra("wrongOnly",true));
+            else if(which==1)aiAnalyze(taskId,index,word);
+            else if(which==2)aiRoots(word);
+            else new AlertDialog.Builder(this).setTitle("清除错词记录？").setMessage("单词卡会保留，只清除错误次数和轮次记录。").setNegativeButton("取消",null).setPositiveButton("清除",(d2,w2)->{try{WrongBook.clear(this,taskId,index);render();}catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}}).show();
+        }).setNegativeButton("取消",null).show()),moreLp);
+        card.addView(actions);
 
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(10);body.addView(card,lp);
     }
