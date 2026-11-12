@@ -133,6 +133,12 @@ final class SpeechSettings {
             }
         });
         sheet.show();
+        if(!sheet.isShowing()){
+            // Activity is finishing: the sheet never appears, so its dismiss listener would never
+            // release a TTS engine. Do not create one.
+            closed=true;
+            return;
+        }
         engine=new TextToSpeech(activity,result->new Handler(Looper.getMainLooper()).post(()->initialized(result)));
     }
 
