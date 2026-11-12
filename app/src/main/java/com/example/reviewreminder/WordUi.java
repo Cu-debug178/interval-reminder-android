@@ -247,8 +247,8 @@ final class WordUi {
 
     private Button styled(String title,int fill,int fg,int ripple,int icon,View.OnClickListener action){
         Button b=new Btn(a);
-        b.setText(title);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(fg);b.setTypeface(Theme.MEDIUM);b.setLetterSpacing(.01f);
-        b.setGravity(Gravity.CENTER);b.setSingleLine(true);b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        b.setText(title);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(fg);b.setTypeface(Theme.MEDIUM);
+        b.setGravity(Gravity.CENTER);b.setMaxLines(1);b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setPadding(dp(Theme.SPACE_20),0,dp(Theme.SPACE_20),0);
         b.setMinHeight(dp(Theme.BUTTON_HEIGHT));b.setMinimumHeight(dp(Theme.BUTTON_HEIGHT));b.setMinWidth(0);b.setMinimumWidth(0);
         Theme.applyRipple(b,Theme.shape(a,fill,Theme.RADIUS_BUTTON),ripple);

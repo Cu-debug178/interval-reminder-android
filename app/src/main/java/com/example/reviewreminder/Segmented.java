@@ -31,7 +31,7 @@ final class Segmented extends FrameLayout {
         items=new TextView[options.length];
         selected=Math.max(0,Math.min(options.length-1,initial));
         for(int i=0;i<options.length;i++){
-            final int index=i;TextView t=new TextView(c);t.setText(options[i]);t.setGravity(Gravity.CENTER);t.setTextSize(Theme.CALLOUT_SIZE);t.setSingleLine(true);
+            final int index=i;TextView t=new TextView(c);t.setText(options[i]);t.setGravity(Gravity.CENTER);t.setTextSize(Theme.CALLOUT_SIZE);t.setMaxLines(1);
             t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setPadding(Theme.dp(c,6),0,Theme.dp(c,6),0);
             t.setClickable(true);t.setFocusable(true);t.setOnClickListener(v->{if(index!=selected){setSelected(index,true);Feedback.tick(v);if(onPick!=null)onPick.pick(index);}});
             items[i]=t;labels.addView(t,new LinearLayout.LayoutParams(0,-1,1));

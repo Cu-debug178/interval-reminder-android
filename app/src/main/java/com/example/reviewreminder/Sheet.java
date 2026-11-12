@@ -127,7 +127,7 @@ final class Sheet {
     Button secondaryButton(){return secondary;}
 
     private Button addButton(String label,int fill,int fg,int ripple,Check check,boolean isPrimary){
-        WordUi.Btn b=new WordUi.Btn(a);b.setText(label);b.setAllCaps(false);b.setTextSize(16);b.setTypeface(Theme.MEDIUM);b.setTextColor(fg);b.setGravity(Gravity.CENTER);b.setSingleLine(true);
+        WordUi.Btn b=new WordUi.Btn(a);b.setText(label);b.setAllCaps(false);b.setTextSize(16);b.setTypeface(Theme.MEDIUM);b.setTextColor(fg);b.setGravity(Gravity.CENTER);b.setMaxLines(1);
         b.setMinHeight(dp(Theme.BUTTON_HEIGHT));b.setMinimumHeight(dp(Theme.BUTTON_HEIGHT));b.setMinWidth(0);b.setMinimumWidth(0);b.setPadding(dp(12),0,dp(12),0);b.setStateListAnimator(null);b.setElevation(0);
         Theme.applyRipple(b,Theme.shape(a,fill,Theme.RADIUS_BUTTON),ripple);
         b.setOnClickListener(v->{if(check==null||check.ok())dialog.dismiss();});
