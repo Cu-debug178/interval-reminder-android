@@ -484,8 +484,8 @@ public final class WordEditorActivity extends ScreenActivity {
                                 JSONObject current=Store.find(all,taskId);
                                 if(current!=null){current.put("words",words);Store.save(this,all);}
                             }
-                            ui.toast("义项已更新");
                             show();
+                            ui.toast("义项已更新");
                         }catch(Exception e){ui.error(e.getMessage());}
                     })
                     .show();
@@ -653,6 +653,7 @@ public final class WordEditorActivity extends ScreenActivity {
     }
 
     private void commit(){
+        if(committed)return;
         try{
             if(document.optString("title").isEmpty()){ui.error("请填写词组名称");return;}
             for(int i=0;i<words.length();i++){
