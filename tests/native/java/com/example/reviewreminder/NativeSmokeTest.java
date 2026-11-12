@@ -45,7 +45,7 @@ public final class NativeSmokeTest extends Instrumentation {
         JSONObject senseWord=new JSONObject().put("english","book").put("chinese","n. 书；v. 预订").put("example","");JSONArray senses=Senses.migrate(senseWord);check(senses.length()>=2,"multi-sense chinese migrates to senses[]");check(Senses.label(senses.optJSONObject(0)).contains("书"),"first sense keeps noun meaning");
         Store.prefs(getTargetContext()).edit().putBoolean("setupComplete",false).commit();
         Activity main=open(MainActivity.class,0);Object setup=field(main,"setupDialog");
-        check(((android.app.AlertDialog)setup).isShowing(),"first-run setup wizard opens");
+        check(((android.app.Dialog)setup).isShowing(),"first-run setup wizard opens");
         call(main,"advanceSetup");check(intField(main,"setupStep")==1,"setup advances to out-of-window rule");
         call(main,"advanceSetup");check(intField(main,"setupStep")==2,"setup advances to permission guidance");
         call(main,"advanceSetup");check(Store.prefs(getTargetContext()).getBoolean("setupComplete",false),"setup wizard saves selected preferences");

@@ -36,6 +36,10 @@ final class Feedback {
         } catch(RuntimeException ignored) { release(); }
     }
     void confirm(View view){respond(view,COMPLETE);}
+    /** Light selection tick (segment change, toggle). Haptic only, never sound; honours the haptic preference. */
+    static void tick(View view){
+        if(view!=null&&Store.prefs(view.getContext()).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+    }
     void reveal(View view){
         if(Store.prefs(view.getContext()).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }
