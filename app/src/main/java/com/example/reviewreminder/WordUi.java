@@ -69,14 +69,14 @@ final class WordUi {
         screen.addView(bar);
         scroll=new ScrollView(a);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
-        body=col();body.setPadding(dp(Theme.PAGE_PAD),dp(Theme.SPACE_8),dp(Theme.PAGE_PAD),dp(Theme.SPACE_32));
+        body=new Column(a);body.setPadding(dp(Theme.PAGE_PAD),dp(Theme.SPACE_8),dp(Theme.PAGE_PAD),dp(Theme.SPACE_32));
         scroll.addView(body);
         // Hairline under the bar appears only once content scrolls beneath it.
         View shadow=new View(a);shadow.setBackgroundColor(Theme.HAIRLINE);shadow.setAlpha(0);
         frame=new FrameLayout(a);frame.addView(scroll,new FrameLayout.LayoutParams(-1,-1));frame.addView(shadow,new FrameLayout.LayoutParams(-1,Math.max(1,dp(.75f))));
         scroll.getViewTreeObserver().addOnScrollChangedListener(()->shadow.setAlpha(Math.min(1f,scroll.getScrollY()/(float)dp(12))));
         screen.addView(frame,new LinearLayout.LayoutParams(-1,0,1));
-        footer=col();footer.setPadding(dp(Theme.PAGE_PAD),dp(Theme.SPACE_12),dp(Theme.PAGE_PAD),dp(Theme.SPACE_16));footer.setBackgroundColor(Theme.BG);footer.setVisibility(View.GONE);
+        footer=new Column(a);footer.setPadding(dp(Theme.PAGE_PAD),dp(Theme.SPACE_12),dp(Theme.PAGE_PAD),dp(Theme.SPACE_16));footer.setBackgroundColor(Theme.BG);footer.setVisibility(View.GONE);
         screen.addView(footer,lp());
         a.setContentView(screen);
         systemBars(a);
@@ -347,6 +347,24 @@ final class WordUi {
             int content=(int)(d.getBounds().width()+getCompoundDrawablePadding()+tw+.5f);
             int pad=Math.max(base,(getWidth()-content)/2-(int)(getResources().getDisplayMetrics().density*2));
             if(Math.abs(pad-getPaddingLeft())>1)setPadding(pad,getPaddingTop(),pad,getPaddingBottom());
+        }
+    }
+
+    /**
+     * Vertical column that keeps a comfortable reading width (≤ 600dp) on tablets and in
+     * landscape by growing its side padding; on phones it behaves like a plain LinearLayout.
+     */
+    static final class Column extends LinearLayout {
+        private int baseLeft,baseRight;private boolean based;
+        Column(Context c){super(c);setOrientation(VERTICAL);}
+        @Override public void setPadding(int l,int t,int r,int b){baseLeft=l;baseRight=r;based=true;super.setPadding(l,t,r,b);}
+        @Override protected void onMeasure(int w,int h){
+            if(based&&MeasureSpec.getMode(w)!=MeasureSpec.UNSPECIFIED){
+                int max=(int)(600*getResources().getDisplayMetrics().density);
+                int extra=Math.max(0,(MeasureSpec.getSize(w)-baseLeft-baseRight-max)/2);
+                super.setPadding(baseLeft+extra,getPaddingTop(),baseRight+extra,getPaddingBottom());
+            }
+            super.onMeasure(w,h);
         }
     }
 

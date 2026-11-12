@@ -172,10 +172,10 @@ public final class NativeSmokeTest extends Instrumentation {
     private void testSpeechSettings(Activity main)throws Exception{
         final Object[] settings=new Object[1];Constructor<SpeechSettings> constructor=SpeechSettings.class.getDeclaredConstructor(Activity.class);constructor.setAccessible(true);
         runOnMainSync(()->{try{settings[0]=constructor.newInstance(main);}catch(Exception e){throw new RuntimeException(e);}});waitForIdleSync();
-        AlertDialog dialog=(AlertDialog)field(settings[0],"dialog");Spinner rate=(Spinner)field(settings[0],"rate");check(dialog.isShowing()&&rate.getCount()==5,"speech dialog exposes five rates");
-        runOnMainSync(()->{rate.setSelection(1);dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();});check(Store.prefs(getTargetContext()).getInt("speechRate",2)==2,"cancel does not save speech rate");
+        android.app.Dialog dialog=(android.app.Dialog)field(settings[0],"dialog");Segmented rate=(Segmented)field(settings[0],"rate");Button cancel=(Button)field(settings[0],"cancel");check(dialog.isShowing()&&((ViewGroup)rate.getChildAt(1)).getChildCount()==5,"speech dialog exposes five rates");
+        runOnMainSync(()->{rate.setSelected(1,false);cancel.performClick();});check(Store.prefs(getTargetContext()).getInt("speechRate",2)==2,"cancel does not save speech rate");
         runOnMainSync(()->{try{settings[0]=constructor.newInstance(main);}catch(Exception e){throw new RuntimeException(e);}});waitForIdleSync();
-        AlertDialog saveDialog=(AlertDialog)field(settings[0],"dialog");Spinner saveRate=(Spinner)field(settings[0],"rate");runOnMainSync(()->{saveRate.setSelection(3);saveDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();});check(Store.prefs(getTargetContext()).getInt("speechRate",2)==3,"speech rate persists after save");
+        Segmented saveRate=(Segmented)field(settings[0],"rate");Button save=(Button)field(settings[0],"save");runOnMainSync(()->{saveRate.setSelected(3,false);save.performClick();});check(Store.prefs(getTargetContext()).getInt("speechRate",2)==3,"speech rate persists after save");
     }
     private void testHapticFeedback()throws Exception{
         android.content.SharedPreferences prefs=Store.prefs(getTargetContext());boolean oldHaptic=prefs.getBoolean("haptic",true),oldSound=prefs.getBoolean("feedbackSound",true);

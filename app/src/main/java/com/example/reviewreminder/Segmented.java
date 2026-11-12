@@ -28,6 +28,7 @@ final class Segmented extends FrameLayout {
         addView(thumb,new FrameLayout.LayoutParams(0,-1));
         labels=new LinearLayout(c);labels.setOrientation(LinearLayout.HORIZONTAL);
         addView(labels,new FrameLayout.LayoutParams(-1,Theme.dp(c,36)));
+        labels.setElevation(Theme.dp(c,2)); // labels must draw above the elevated thumb
         items=new TextView[options.length];
         selected=Math.max(0,Math.min(options.length-1,initial));
         for(int i=0;i<options.length;i++){
