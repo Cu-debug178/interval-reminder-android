@@ -467,6 +467,13 @@ public final class ReviewActivity extends ScreenActivity {
         EditText en=formField(form,"英文","",word.optString("english"));
         EditText zh=formField(form,"中文","",word.optString("chinese"));
         EditText ex=formField(form,"例句","可留空",word.optString("example"));
+        // The sheet is its own window and covers bottom notices, so a failed
+        // save is reported inline, right under the fields.
+        TextView failure=ui.type("",Theme.T_CALLOUT);
+        failure.setTextColor(Theme.DANGER);
+        failure.setPadding(ui.dp(Theme.SPACE_4),0,ui.dp(Theme.SPACE_4),0);
+        failure.setVisibility(View.GONE);
+        form.addView(failure,ui.lpMargin(Theme.SPACE_12,0));
         new Sheet(this)
             .title("编辑单词卡")
             .content(form)
@@ -477,6 +484,9 @@ public final class ReviewActivity extends ScreenActivity {
                     en.requestFocus();
                     return false;
                 }
+                Object oldEnglish=word.opt("english");
+                Object oldChinese=word.opt("chinese");
+                Object oldExample=word.opt("example");
                 try{
                     word.put("english",en.getText().toString().trim())
                         .put("chinese",zh.getText().toString().trim())
@@ -487,7 +497,15 @@ public final class ReviewActivity extends ScreenActivity {
                     current.put("words",words);
                     Store.save(this,all);
                 }catch(Exception e){
-                    ui.error(e.getMessage());
+                    restore(word,"english",oldEnglish);
+                    restore(word,"chinese",oldChinese);
+                    restore(word,"example",oldExample);
+                    String reason=e.getMessage();
+                    failure.setText("保存失败："+(reason==null||reason.isEmpty()?"请稍后重试":reason));
+                    if(failure.getVisibility()!=View.VISIBLE){
+                        failure.setVisibility(View.VISIBLE);
+                        Motion.enter(failure);
+                    }
                     return false;
                 }
                 show();
@@ -495,6 +513,13 @@ public final class ReviewActivity extends ScreenActivity {
                 return true;
             })
             .show();
+    }
+
+    private static void restore(JSONObject word,String key,Object value){
+        try{
+            if(value==null)word.remove(key);
+            else word.put(key,value);
+        }catch(Exception ignored){}
     }
 
     private EditText formField(LinearLayout form,String label,String hint,String value){
