@@ -1,12 +1,14 @@
 package com.example.reviewreminder;
 
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -29,6 +31,8 @@ import java.util.concurrent.Future;
 public final class WrongBookActivity extends ScreenActivity {
     private WordUi ui;
     private Future<?> pending;
+    /** One AI request at a time; set when a result sheet opens, cleared by its callback or dismissal. */
+    private boolean aiBusy;
     private boolean rendered;
 
     @Override public void onCreate(Bundle state){
@@ -151,7 +155,8 @@ public final class WrongBookActivity extends ScreenActivity {
             copy.addView(chinese,cp);
         }
 
-        TextView record=ui.type(task.optString("title")+" · "+roundsText(word),Theme.T_CAPTION);
+        String rounds=roundsText(word);
+        TextView record=ui.type(rounds.isEmpty()?task.optString("title"):task.optString("title")+" · "+rounds,Theme.T_CAPTION);
         record.setMaxLines(2);
         record.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams rp=WordUi.lp();
@@ -200,7 +205,7 @@ public final class WrongBookActivity extends ScreenActivity {
         group.addView(row,WordUi.lp());
     }
 
-    /** “出错于 第1轮、第3轮” — the round list format is unchanged. */
+    /** “出错于 第1轮、第3轮” — the round list format is unchanged; empty when no rounds were recorded. */
     private static String roundsText(JSONObject word){
         JSONArray rounds=word.optJSONArray("wrongRounds");
         StringBuilder labels=new StringBuilder();
@@ -210,7 +215,7 @@ public final class WrongBookActivity extends ScreenActivity {
                 labels.append("第").append(rounds.optInt(i)).append("轮");
             }
         }
-        return labels.length()==0?"出错轮次未记录":"出错于 "+labels;
+        return labels.length()==0?"":"出错于 "+labels;
     }
 
     /** Recent sentence-writing feedback, newest first (last 8). */
@@ -292,13 +297,22 @@ public final class WrongBookActivity extends ScreenActivity {
     }
 
     // ── AI ────────────────────────────────────────────────────────────────────
+    //
+    // Each action opens its result sheet at once with a quiet loading state, then fills it in
+    // place. One request at a time: a second tap while busy does nothing, and closing the sheet
+    // cancels the request. Callbacks from a superseded or cancelled request are ignored.
 
     private void aiAnalyze(long taskId,int index,JSONObject word){
+        if(aiBusy)return;
         if(!AiSettings.ready(this)){ui.error(AiSettings.notReadyMessage(this));return;}
-        ui.toast("正在分析…");
-        pending=AiClient.chatJson(this,AiPrompts.systemWrongAnalysis(),AiPrompts.userWrongAnalysis(word.optString("english"),word.optString("chinese"),word.optInt("wrongCount")),new AiClient.Callback(){
+        Sheet sheet=loadingSheet("错题分析");
+        final Future<?>[] req=new Future<?>[1];
+        req[0]=AiClient.chatJson(this,AiPrompts.systemWrongAnalysis(),AiPrompts.userWrongAnalysis(word.optString("english"),word.optString("chinese"),word.optInt("wrongCount")),new AiClient.Callback(){
             @Override public void onResult(JSONObject json){
+                if(pending!=req[0])return;
+                aiBusy=false;
                 String text="记忆钩子："+json.optString("hooks")+"\n易混点："+json.optString("confusion")+"\n建议："+json.optString("tip");
+                String saveError=null;
                 try{
                     JSONArray tasks=Store.tasks(WrongBookActivity.this);
                     JSONObject task=Store.find(tasks,taskId);
@@ -311,24 +325,34 @@ public final class WrongBookActivity extends ScreenActivity {
                         Store.save(WrongBookActivity.this,tasks);
                     }
                 }catch(Exception e){
-                    ui.error(message(e));
+                    saveError=message(e);
                 }
                 LinearLayout content=ui.col();
                 content.addView(block("记忆钩子",json.optString("hooks"),false),WordUi.lp());
                 content.addView(block("易混点",json.optString("confusion"),false),blockLp());
                 content.addView(block("建议",json.optString("tip"),false),blockLp());
-                new Sheet(WrongBookActivity.this).title("错题分析").content(content).secondary("关闭",null).show();
+                if(saveError!=null)content.addView(errorText("分析未能保存："+saveError),blockLp());
+                if(!fill(sheet,content)&&saveError!=null)ui.error(saveError);
                 render();
             }
-            @Override public void onError(String message){ui.error(message);}
+            @Override public void onError(String message){
+                if(pending!=req[0])return;
+                aiBusy=false;
+                fill(sheet,errorText(message));
+            }
         });
+        track(sheet,req[0]);
     }
 
     private void aiRoots(JSONObject word){
+        if(aiBusy)return;
         if(!AiSettings.ready(this)){ui.error(AiSettings.notReadyMessage(this));return;}
-        ui.toast("正在对比…");
-        pending=AiClient.chatJson(this,AiPrompts.systemRoots(),AiPrompts.userRoots(word.optString("english"),word.optString("chinese")),new AiClient.Callback(){
+        Sheet sheet=loadingSheet("词根 / 形近对比");
+        final Future<?>[] req=new Future<?>[1];
+        req[0]=AiClient.chatJson(this,AiPrompts.systemRoots(),AiPrompts.userRoots(word.optString("english"),word.optString("chinese")),new AiClient.Callback(){
             @Override public void onResult(JSONObject json){
+                if(pending!=req[0])return;
+                aiBusy=false;
                 LinearLayout content=ui.col();
                 content.addView(block("词根",json.optString("root"),true),WordUi.lp());
 
@@ -363,13 +387,19 @@ public final class WrongBookActivity extends ScreenActivity {
                 }
 
                 content.addView(block("提示",json.optString("tip"),false),blockLp());
-                new Sheet(WrongBookActivity.this).title("词根 / 形近对比").content(content).secondary("关闭",null).show();
+                fill(sheet,content);
             }
-            @Override public void onError(String message){ui.error(message);}
+            @Override public void onError(String message){
+                if(pending!=req[0])return;
+                aiBusy=false;
+                fill(sheet,errorText(message));
+            }
         });
+        track(sheet,req[0]);
     }
 
     private void aiScenarioAll(){
+        if(aiBusy)return;
         if(!AiSettings.ready(this)){ui.error(AiSettings.notReadyMessage(this));return;}
         try{
             JSONArray list=new JSONArray();
@@ -387,9 +417,12 @@ public final class WrongBookActivity extends ScreenActivity {
                 if(list.length()>=12)break;
             }
             if(list.length()==0){ui.toast("暂无错词可生成情景");return;}
-            ui.toast("正在生成情景…");
-            pending=AiClient.chatJson(this,AiPrompts.systemScenario(),AiPrompts.userScenario(list.toString()),new AiClient.Callback(){
+            Sheet sheet=loadingSheet("情景练习");
+            final Future<?>[] req=new Future<?>[1];
+            req[0]=AiClient.chatJson(this,AiPrompts.systemScenario(),AiPrompts.userScenario(list.toString()),new AiClient.Callback(){
                 @Override public void onResult(JSONObject json){
+                    if(pending!=req[0])return;
+                    aiBusy=false;
                     LinearLayout content=ui.col();
                     String title=json.optString("title").trim();
                     if(!title.isEmpty()){
@@ -406,13 +439,63 @@ public final class WrongBookActivity extends ScreenActivity {
                     LinearLayout.LayoutParams p=WordUi.lp();
                     if(!title.isEmpty())p.topMargin=dp(Theme.SPACE_12);
                     content.addView(text,p);
-                    new Sheet(WrongBookActivity.this).title("情景练习").content(content).secondary("关闭",null).show();
+                    fill(sheet,content);
                 }
-                @Override public void onError(String message){ui.error(message);}
+                @Override public void onError(String message){
+                    if(pending!=req[0])return;
+                    aiBusy=false;
+                    fill(sheet,errorText(message));
+                }
             });
+            track(sheet,req[0]);
         }catch(Exception e){
+            aiBusy=false;
             ui.error(message(e));
         }
+    }
+
+    /** Result sheet shown immediately: final title, a quiet “正在生成…” line and a thin indeterminate bar. */
+    private Sheet loadingSheet(String title){
+        aiBusy=true;
+        LinearLayout box=ui.col();
+        box.setPadding(0,dp(Theme.SPACE_8),0,dp(Theme.SPACE_8));
+        TextView label=ui.type("正在生成…",Theme.T_CALLOUT);
+        label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        box.addView(label,WordUi.lp());
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(true);
+        bar.setIndeterminateTintList(ColorStateList.valueOf(Theme.PRIMARY));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(Theme.SUNK));
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(dp(140),dp(4));
+        bp.topMargin=dp(Theme.SPACE_12);
+        box.addView(bar,bp);
+        return new Sheet(this).title(title).content(box).secondary("关闭",null).show();
+    }
+
+    /** Remembers the in-flight request; closing the sheet cancels it and frees the busy guard. */
+    private void track(Sheet sheet,Future<?> req){
+        pending=req;
+        sheet.onDismiss(()->{
+            if(pending!=req)return;
+            AiClient.cancel(req);
+            pending=null;
+            aiBusy=false;
+        });
+    }
+
+    /** Swaps the loading state for the result (or error) while the sheet is still open. */
+    private boolean fill(Sheet sheet,View content){
+        if(!sheet.isShowing())return false;
+        Motion.layout(sheet.body);
+        sheet.clearContent().content(content);
+        return true;
+    }
+
+    private TextView errorText(String message){
+        TextView t=ui.type(message==null||message.isEmpty()?"AI 请求失败":message,Theme.T_CALLOUT);
+        t.setTextColor(Theme.DANGER);
+        t.setTextIsSelectable(true);
+        return t;
     }
 
     // ── Small parts ───────────────────────────────────────────────────────────

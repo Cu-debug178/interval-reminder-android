@@ -20,7 +20,7 @@ import java.util.Locale;
  * removed individually so only the affected row animates; a tonal "添加提醒时间段" sits below.
  *
  * Public API (constructor, view(), value(), draftValue(), isEmpty(), setOnChanged()) and the
- * validation in value() are unchanged.
+ * validation in value() are unchanged. onSurface() adapts the colours for a white sheet.
  */
 final class TimeWindowPicker {
     private static final class Range {
@@ -44,6 +44,8 @@ final class TimeWindowPicker {
     private final List<Range> ranges=new ArrayList<>();
     private final List<RowViews> rowViews=new ArrayList<>();
     private Runnable changed;
+    /** True when hosted on a white surface (a sheet): the group turns paper and the pills turn white. */
+    private boolean onSurface;
 
     TimeWindowPicker(Activity activity,String value,Runnable changed){
         this.activity=activity;
@@ -78,6 +80,21 @@ final class TimeWindowPicker {
     }
 
     void setOnChanged(Runnable changed){this.changed=changed;}
+
+    /**
+     * For use on a white surface such as a sheet: the white group would vanish into it, so the
+     * group takes the paper tone and the time pills become white. The settings page keeps the
+     * default (white group, sunk pills).
+     */
+    TimeWindowPicker onSurface(){
+        onSurface=true;
+        rows.setBackground(Theme.shape(activity,Theme.BG,Theme.RADIUS_GROUP));
+        for(RowViews holder:rowViews){
+            paintPill(holder.start);
+            paintPill(holder.end);
+        }
+        return this;
+    }
 
     View view(){return root;}
 
@@ -174,7 +191,7 @@ final class TimeWindowPicker {
         b.setStateListAnimator(null);
         b.setElevation(0);
         b.setTag(holder.range);
-        Theme.applyRipple(b,Theme.shape(activity,Theme.SUNK,Theme.RADIUS_FIELD),Theme.RIPPLE_LIGHT);
+        paintPill(b);
         b.setOnClickListener(v->{
             Range range=holder.range;
             int minutes=start?range.start:range.end;
@@ -188,6 +205,11 @@ final class TimeWindowPicker {
         });
         Motion.press(b,.96f);
         return b;
+    }
+
+    /** Sunk pill on the white group; white pill on the paper group used inside sheets. */
+    private void paintPill(Button b){
+        Theme.applyRipple(b,Theme.shape(activity,onSurface?Theme.SURFACE:Theme.SUNK,Theme.RADIUS_FIELD),Theme.RIPPLE_LIGHT);
     }
 
     /** Writes the range into its row: both times, accessible labels and the quiet status note. */
