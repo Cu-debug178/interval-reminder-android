@@ -321,15 +321,21 @@ public final class ImportActivity extends ScreenActivity {
         remove.setContentDescription("移除这张照片");
         View disc=new View(this);
         disc.setBackground(Theme.oval(0xB31B2220));
-        remove.addView(disc,new FrameLayout.LayoutParams(ui.dp(22),ui.dp(22),Gravity.CENTER));
+        FrameLayout.LayoutParams discLp=new FrameLayout.LayoutParams(ui.dp(22),ui.dp(22),Gravity.TOP|Gravity.END);
+        discLp.topMargin=ui.dp(6);
+        discLp.rightMargin=ui.dp(6);
+        remove.addView(disc,discLp);
         ImageView x=ui.icon(R.drawable.ic_x,Color.WHITE);
-        remove.addView(x,new FrameLayout.LayoutParams(ui.dp(12),ui.dp(12),Gravity.CENTER));
+        FrameLayout.LayoutParams xLp=new FrameLayout.LayoutParams(ui.dp(12),ui.dp(12),Gravity.TOP|Gravity.END);
+        xLp.topMargin=ui.dp(11);
+        xLp.rightMargin=ui.dp(11);
+        remove.addView(x,xLp);
         remove.setClickable(true);
         remove.setFocusable(true);
         Theme.applyBorderlessRipple(remove,Theme.RIPPLE_DARK);
         remove.setOnClickListener(v->removePhoto(photo,frame));
         Motion.press(remove,.9f);
-        frame.addView(remove,new FrameLayout.LayoutParams(ui.dp(36),ui.dp(36),Gravity.TOP|Gravity.END));
+        frame.addView(remove,new FrameLayout.LayoutParams(ui.dp(Theme.TOUCH),ui.dp(Theme.TOUCH),Gravity.TOP|Gravity.END));
         return frame;
     }
 
@@ -536,7 +542,7 @@ public final class ImportActivity extends ScreenActivity {
                     runOnUiThread(()->{
                         if(!alive())return;
                         home();
-                        ui.error(e.getMessage());
+                        ui.error("读取照片失败："+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage()));
                     });
                 }
             });
@@ -667,8 +673,6 @@ public final class ImportActivity extends ScreenActivity {
             JSONArray found=Words.array(WordParser.parse(raw));
             if(found.length()==0){ui.error("未解析出单词，可改用 AI 整理或手动添加");return;}
             saveDraft(found,new JSONArray(),"本地解析草稿，待校对");
-            sourceText="";
-            if(source!=null)source.setText("");
             renderDraft(true);
             ui.toast("已解析 "+found.length()+" 个单词");
             edit();
