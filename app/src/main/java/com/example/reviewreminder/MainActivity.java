@@ -84,9 +84,11 @@ public class MainActivity extends ScreenActivity {
     private Check saveSettings;
     private Draft settingsDraft;
     private String settingsDraftStart;
-    private int aiUiToken;
+    private int aiUiToken,aiProbeGen;
     private java.util.concurrent.Future<?> aiJob;
     private Sheet aiEditor;
+    /** A list retest finished while the editor was open; refresh after the sheet closes. */
+    private boolean aiListDirty;
 
     private boolean exactStateKnown,lastExactAllowed,setupRuleChosen;
     private Dialog setupDialog,permissionDialog;
@@ -286,6 +288,7 @@ public class MainActivity extends ScreenActivity {
 
     private void renderPage(boolean fresh){
         aiUiToken++;
+        aiProbeGen++;
         AiClient.cancel(aiJob);
         if(aiEditor!=null&&aiEditor.isShowing())aiEditor.dismiss();
         animateNumbers=fresh;
@@ -1729,11 +1732,12 @@ public class MainActivity extends ScreenActivity {
         String id=config.optString("id");
         String key=AiSecrets.readApiKey(this,id);
         if(key.isEmpty()){error("这项配置缺少 API Key");return;}
-        int token=aiUiToken;
+        int probe=++aiProbeGen;
+        AiClient.cancel(aiJob);
         if(button!=null){button.setText("正在检测连接…");WordUi.enable(button,false);}
         else toast("正在检测连接…");
         aiJob=AiClient.probe(config.optString("baseUrl"),key,config.optString("model"),(ok,message,models)->{
-            if(token!=aiUiToken||isFinishing())return;
+            if(probe!=aiProbeGen||isFinishing())return;
             if(!AiSettings.markCheck(this,id,ok,ok?"已连接":message)){
                 if(button!=null){button.setText("测试连接");WordUi.enable(button,true);}
                 error("设置未能保存");
@@ -1741,6 +1745,8 @@ public class MainActivity extends ScreenActivity {
             }
             if(ok)toast("连接成功 · "+config.optString("model"));
             else error(message);
+            // Rebuilding the page dismisses an open editor and drops an in-flight save.
+            if(aiEditor!=null&&aiEditor.isShowing()){aiListDirty=true;return;}
             renderAtScroll();
         });
     }
@@ -1789,9 +1795,11 @@ public class MainActivity extends ScreenActivity {
         TextView hint=ui.type("检测通过后才会加入列表。Key 保存后只显示掩码。",Theme.T_CAPTION);
         form.addView(hint,margins(-1,-2,Theme.SPACE_4,Theme.SPACE_8,0,0));
 
-        final boolean[] nameEdited={editing},ignoreName={false};
+        final boolean[] nameEdited={editing},ignoreName={false},running={false};
+        final int[] testedProvider={initial};
         onText(name,()->{if(!ignoreName[0])nameEdited[0]=true;});
         provider.setOnPick(position->{
+            if(running[0]){provider.setSelected(testedProvider[0],false);return;}
             if(position==AiSettings.PROVIDER_DEEPSEEK){
                 base.setText(AiSettings.DEEPSEEK_URL);
                 String current=model.getText().toString().trim();
@@ -1810,7 +1818,6 @@ public class MainActivity extends ScreenActivity {
 
         Sheet sheet=new Sheet(this).title(editing?"编辑配置":"添加配置").content(form);
         aiEditor=sheet;
-        final boolean[] running={false};
         fetch.setOnClickListener(v->{
             if(running[0])return;
             String typed=key.getText().toString().trim();
@@ -1818,15 +1825,18 @@ public class MainActivity extends ScreenActivity {
             String baseError=AiSettings.validateBase(base.getText().toString());
             if(baseError!=null){showAiStatus(status,baseError,true);return;}
             if(effective.isEmpty()){showAiStatus(status,"请填写 API Key",true);return;}
-            int token=aiUiToken;
+            int probe=++aiProbeGen;
+            AiClient.cancel(aiJob);
             running[0]=true;
+            testedProvider[0]=provider.getSelectedItemPosition();
+            lockAiForm(true,name,base,key,model,provider,fetch,null);
             fetch.setText("正在获取模型…");
-            WordUi.enable(fetch,false);
-            aiJob=AiClient.models(base.getText().toString(),effective,(ok,message,models)->{
+            String fetchBase=base.getText().toString();
+            aiJob=AiClient.models(fetchBase,effective,(ok,message,models)->{
+                if(probe!=aiProbeGen||isFinishing()||!sheet.isShowing())return;
                 running[0]=false;
-                if(token!=aiUiToken||isFinishing()||!sheet.isShowing())return;
                 fetch.setText("获取模型");
-                WordUi.enable(fetch,true);
+                lockAiForm(false,name,base,key,model,provider,fetch,null);
                 if(!ok){showAiStatus(status,message,true);error(message);return;}
                 if(models==null||models.isEmpty()){showAiStatus(status,message,false);toast(message);return;}
                 status.setVisibility(View.GONE);
@@ -1840,43 +1850,69 @@ public class MainActivity extends ScreenActivity {
             String typedKey=key.getText().toString().trim();
             String effective=typedKey.isEmpty()?storedKey:typedKey;
             String chosen=model.getText().toString().trim();
-            String baseError=AiSettings.validateBase(base.getText().toString());
+            String baseValue=base.getText().toString();
+            int providerValue=provider.getSelectedItemPosition();
+            String baseError=AiSettings.validateBase(baseValue);
             if(baseError!=null){showAiStatus(status,baseError,true);return false;}
             if(effective.isEmpty()){showAiStatus(status,"请填写 API Key",true);return false;}
             if(chosen.isEmpty()){showAiStatus(status,"请填写或选择模型",true);return false;}
-            int token=aiUiToken;
+            int probe=++aiProbeGen;
+            AiClient.cancel(aiJob);
             running[0]=true;
+            testedProvider[0]=providerValue;
             Button save=sheet.primaryButton();
             save.setText("正在检测连接…");
-            WordUi.enable(save,false);
-            WordUi.enable(fetch,false);
+            lockAiForm(true,name,base,key,model,provider,fetch,save);
             String displayName=name.getText().toString().trim();
-            if(displayName.isEmpty())displayName=AiSettings.defaultName(provider.getSelectedItemPosition());
+            if(displayName.isEmpty())displayName=AiSettings.defaultName(providerValue);
             final String finalName=displayName;
-            aiJob=AiClient.probe(base.getText().toString(),effective,chosen,(ok,message,models)->{
+            aiJob=AiClient.probe(baseValue,effective,chosen,(ok,message,models)->{
+                if(probe!=aiProbeGen||isFinishing()||!sheet.isShowing())return;
                 running[0]=false;
-                if(token!=aiUiToken||isFinishing()||!sheet.isShowing())return;
-                WordUi.enable(save,true);
-                WordUi.enable(fetch,true);
                 save.setText("测试并保存");
+                lockAiForm(false,name,base,key,model,provider,fetch,save);
                 if(!ok){showAiStatus(status,message,true);error(message);return;}
                 boolean makeActive=existing==null&&AiSettings.active(this)==null;
                 String detail=message.startsWith("连接成功")?"已连接":message;
-                if(!AiSettings.commitVerified(this,existingId,finalName,provider.getSelectedItemPosition(),base.getText().toString(),chosen,typedKey,detail,makeActive)){
+                // Persist the endpoint that was actually probed, not a provider switch made during the check.
+                if(!AiSettings.commitVerified(this,existingId,finalName,providerValue,baseValue,chosen,typedKey,detail,makeActive)){
                     showAiStatus(status,"设置未能保存",true);
                     error("设置未能保存");
                     return;
                 }
                 Feedback.tick(save);
                 toast((editing?"已保存「":"已添加「")+finalName+"」· "+chosen);
+                aiListDirty=false;
                 aiEditor=null;
                 sheet.dismiss();
                 renderAtScroll();
             });
             return false;
         });
-        sheet.onDismiss(()->{if(aiEditor==sheet)aiEditor=null;});
+        sheet.onDismiss(()->{
+            if(aiEditor==sheet)aiEditor=null;
+            if(aiListDirty&&settingsCategory==4&&currentPage==2){aiListDirty=false;renderAtScroll();}
+        });
         sheet.show();
+    }
+
+    /** Locks the form while a check is in flight so a later edit cannot be saved as if it were tested. */
+    private void lockAiForm(boolean lock,EditText name,EditText base,EditText key,EditText model,Segmented provider,Button fetch,Button save){
+        WordUi.enable(name,!lock);
+        WordUi.enable(base,!lock);
+        WordUi.enable(key,!lock);
+        WordUi.enable(model,!lock);
+        provider.setAlpha(lock?.38f:1f);
+        setEnabledTree(provider,!lock);
+        if(fetch!=null)WordUi.enable(fetch,!lock);
+        if(save!=null)WordUi.enable(save,!lock);
+    }
+
+    private void setEnabledTree(View view,boolean enabled){
+        view.setEnabled(enabled);
+        if(!(view instanceof android.view.ViewGroup))return;
+        android.view.ViewGroup group=(android.view.ViewGroup)view;
+        for(int i=0;i<group.getChildCount();i++)setEnabledTree(group.getChildAt(i),enabled);
     }
 
     private void pickAiModel(EditText target,java.util.List<String> models){
