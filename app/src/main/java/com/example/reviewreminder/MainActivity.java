@@ -87,6 +87,8 @@ public class MainActivity extends ScreenActivity {
     private int aiUiToken,aiProbeGen;
     private java.util.concurrent.Future<?> aiJob;
     private Sheet aiEditor;
+    /** Page-level “测试连接” button disabled for the current retest. */
+    private Button aiPageTestButton;
     /** A list retest finished while the editor was open; refresh after the sheet closes. */
     private boolean aiListDirty;
 
@@ -290,6 +292,7 @@ public class MainActivity extends ScreenActivity {
         aiUiToken++;
         aiProbeGen++;
         AiClient.cancel(aiJob);
+        aiPageTestButton=null;
         if(aiEditor!=null&&aiEditor.isShowing())aiEditor.dismiss();
         animateNumbers=fresh;
         saveSettings=null;
@@ -1734,21 +1737,32 @@ public class MainActivity extends ScreenActivity {
         if(key.isEmpty()){error("这项配置缺少 API Key");return;}
         int probe=++aiProbeGen;
         AiClient.cancel(aiJob);
-        if(button!=null){button.setText("正在检测连接…");WordUi.enable(button,false);}
+        releasePageTestButton();
+        if(button!=null){aiPageTestButton=button;button.setText("正在检测连接…");WordUi.enable(button,false);}
         else toast("正在检测连接…");
         aiJob=AiClient.probe(config.optString("baseUrl"),key,config.optString("model"),(ok,message,models)->{
             if(probe!=aiProbeGen||isFinishing())return;
             if(!AiSettings.markCheck(this,id,ok,ok?"已连接":message)){
-                if(button!=null){button.setText("测试连接");WordUi.enable(button,true);}
+                releasePageTestButton();
                 error("设置未能保存");
                 return;
             }
             if(ok)toast("连接成功 · "+config.optString("model"));
             else error(message);
             // Rebuilding the page dismisses an open editor and drops an in-flight save.
-            if(aiEditor!=null&&aiEditor.isShowing()){aiListDirty=true;return;}
+            if(aiEditor!=null&&aiEditor.isShowing()){releasePageTestButton();aiListDirty=true;return;}
+            aiPageTestButton=null;
             renderAtScroll();
         });
+    }
+
+    /** Puts the page test button back. A newer editor check supersedes the retest and must not leave it disabled. */
+    private void releasePageTestButton(){
+        Button button=aiPageTestButton;
+        aiPageTestButton=null;
+        if(button==null||!button.isAttachedToWindow())return;
+        button.setText("测试连接");
+        WordUi.enable(button,true);
     }
 
     private void showAiEditor(JSONObject existing){
@@ -1827,6 +1841,7 @@ public class MainActivity extends ScreenActivity {
             if(effective.isEmpty()){showAiStatus(status,"请填写 API Key",true);return;}
             int probe=++aiProbeGen;
             AiClient.cancel(aiJob);
+            releasePageTestButton();
             running[0]=true;
             testedProvider[0]=provider.getSelectedItemPosition();
             lockAiForm(true,name,base,key,model,provider,fetch,null);
@@ -1858,6 +1873,7 @@ public class MainActivity extends ScreenActivity {
             if(chosen.isEmpty()){showAiStatus(status,"请填写或选择模型",true);return false;}
             int probe=++aiProbeGen;
             AiClient.cancel(aiJob);
+            releasePageTestButton();
             running[0]=true;
             testedProvider[0]=providerValue;
             Button save=sheet.primaryButton();
