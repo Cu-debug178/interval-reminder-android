@@ -1,4 +1,4 @@
-# 间隔提醒 Android 0.7.2
+# 间隔提醒 Android 0.7.3
 
 [English documentation](README.en.md)
 
@@ -62,7 +62,7 @@
 
 ## 下载 APK
 
-Android APK 和 SHA-256 校验值见 [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases)，当前应用版本为 0.7.2。APK 使用本地签名密钥签名；请勿将它与其他来源的同包名应用混装，后续升级需使用相同签名密钥。
+Android APK 和 SHA-256 校验值见 [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases)，当前应用版本为 0.7.3。APK 使用本地签名密钥签名；请勿将它与其他来源的同包名应用混装，后续升级需使用相同签名密钥。
 
 ## 本机构建
 

@@ -36,6 +36,8 @@ public final class CreateActivity extends ScreenActivity {
     private Button submit;
     /** Sentence restored after rotation. Cleared once the field is rebuilt. */
     private String draft;
+    /** Bumps on "换一个词" so a grade for the previous visit cannot change the new screen. */
+    private int generation;
     /** Last shown grade, restored after rotation so the screen does not look unsent. */
     private String savedResult;
     /**
@@ -57,6 +59,7 @@ public final class CreateActivity extends ScreenActivity {
                 wordIndex = state.getInt("wordIndex", -1);
                 draft = state.getString("draft", "");
                 savedResult = state.getString("result");
+                generation = state.getInt("generation", 0);
             }
             if (wordIndex < 0 || wordIndex >= pool.length()) pickWord();
             ui.startModal("创造力造句");
@@ -71,10 +74,12 @@ public final class CreateActivity extends ScreenActivity {
 
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putInt("wordIndex", wordIndex);
+        out.putInt("generation", generation);
         if (sentence != null) out.putString("draft", sentence.getText().toString());
         if (shown != null && shown.finished && shown.error == null) {
             try {
                 JSONObject saved = new JSONObject()
+                        .put("word", shown.wordIndex)
                         .put("text", shown.text)
                         .put("ok", shown.ok)
                         .put("corrected", shown.corrected)
@@ -128,6 +133,8 @@ public final class CreateActivity extends ScreenActivity {
     private void nextWord() {
         // A grade still running for the word being left keeps running and is recorded once.
         // It is not drawn on the new word.
+        generation++;
+        shown = null;
         int before = wordIndex;
         pickWord();
         for (int tries = 0; pool.length() > 1 && wordIndex == before && tries < 8; tries++) pickWord();
@@ -226,9 +233,9 @@ public final class CreateActivity extends ScreenActivity {
             showHint("请先写一句");
             return;
         }
-        // Rotation rebuilds this screen while the original request is still running.
-        // Attach to that request instead of sending the same sentence again.
-        if (inflight != null && inflight.matches(wordIndex, text) && !inflight.finished) {
+        // This visit already has a request running (including one restored after rotation).
+        // Editing the field must not start a second grade that the first result could dismiss.
+        if (inflight != null && !inflight.finished && inflight.generation == generation && inflight.wordIndex == wordIndex) {
             inflight.owner = this;
             showWaiting();
             return;
@@ -236,6 +243,7 @@ public final class CreateActivity extends ScreenActivity {
         hideKeyboard();
         showWaiting();
         GradeJob job = new GradeJob(getApplicationContext(), wordIndex, item.optString("english"), text);
+        job.generation = generation;
         job.owner = this;
         inflight = job;
         shown = null;
@@ -272,10 +280,10 @@ public final class CreateActivity extends ScreenActivity {
         });
     }
 
-    /** Show a grade that belongs to the word and sentence now on screen. */
+    /** Show the grade for this visit, even if the field was edited after it was submitted. */
     private void adoptGrade() {
         GradeJob job = inflight;
-        if (job != null && job.matches(wordIndex, sentence.getText().toString().trim())) {
+        if (job != null && job.generation == generation && job.wordIndex == wordIndex) {
             job.owner = this;
             if (!job.finished) {
                 showWaiting();
@@ -289,7 +297,7 @@ public final class CreateActivity extends ScreenActivity {
         try {
             JSONObject saved = new JSONObject(savedResult);
             savedResult = null;
-            if (!saved.optString("text").equals(sentence.getText().toString().trim())) return;
+            if (saved.optInt("word", -1) != wordIndex) return;
             GradeJob restored = new GradeJob(getApplicationContext(), wordIndex, "", saved.optString("text"));
             restored.ok = saved.optBoolean("ok");
             restored.corrected = saved.optString("corrected");
@@ -314,22 +322,25 @@ public final class CreateActivity extends ScreenActivity {
         result.setVisibility(View.VISIBLE);
     }
 
-    /** Draw the result on the live screen, or keep it for the screen rotation is about to create. */
+    /**
+     * Draw a finished grade only when it is still the request for this visit.
+     * An older request must not clear a newer "正在批改…" or replace its card.
+     */
     private static void deliver(GradeJob job) {
         CreateActivity owner = job.owner;
         boolean alive = owner != null && !owner.isFinishing() && !owner.isDestroyed();
-        if (alive && owner.wordIndex == job.wordIndex && owner.sameSentence(job.text)) {
+        boolean current = inflight == job;
+        if (alive && current && owner.generation == job.generation && owner.wordIndex == job.wordIndex) {
             owner.present(job, true);
-            if (inflight == job) inflight = null;
+            inflight = null;
             return;
         }
         if (alive) {
-            if (owner.wordIndex == job.wordIndex) owner.clearWaiting();
             owner.noteOffscreen(job);
-            if (inflight == job) inflight = null;
+            if (current) inflight = null;
             return;
         }
-        boolean recreating = job.recreating || (owner != null && owner.isChangingConfigurations());
+        boolean recreating = current && (job.recreating || (owner != null && owner.isChangingConfigurations()));
         if (recreating) {
             job.recreating = true;
             job.owner = null;
@@ -342,17 +353,6 @@ public final class CreateActivity extends ScreenActivity {
         if (job.recorded) Toast.makeText(job.app, "已记入造句问题，可在错题本查看", Toast.LENGTH_LONG).show();
         else if (job.recordError != null) Toast.makeText(job.app, job.recordError, Toast.LENGTH_LONG).show();
         if (inflight == job) inflight = null;
-    }
-
-    private boolean sameSentence(String text) {
-        return sentence != null && sentence.getText().toString().trim().equals(text);
-    }
-
-    private void clearWaiting() {
-        busy(submit, false);
-        if (result == null || shown != null) return;
-        result.removeAllViews();
-        result.setVisibility(View.GONE);
     }
 
     private void present(GradeJob job, boolean announce) {
@@ -385,6 +385,7 @@ public final class CreateActivity extends ScreenActivity {
         final int wordIndex;
         final String english;
         final String text;
+        int generation;
         CreateActivity owner;
         boolean recreating;
         boolean finished;
@@ -401,10 +402,6 @@ public final class CreateActivity extends ScreenActivity {
             this.wordIndex = wordIndex;
             this.english = english;
             this.text = text;
-        }
-
-        boolean matches(int index, String sentence) {
-            return wordIndex == index && text.equals(sentence);
         }
     }
 
