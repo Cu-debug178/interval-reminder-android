@@ -1,4 +1,4 @@
-# Interval Reminder for Android 0.5.0
+# Interval Reminder for Android 0.7.0
 
 [简体中文文档](README.md)
 
@@ -63,7 +63,7 @@ The APK is signed with a local development key. **Never commit `build/release.ke
 
 ## Download APK
 
-Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.6.0. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.7.0. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
 
