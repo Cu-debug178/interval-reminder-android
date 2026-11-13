@@ -206,14 +206,31 @@ final class Sheet {
         s.secondary(cancel,null);if(destructive)s.danger(ok,action);else s.primary(ok,action);return s.show();
     }
 
-    /** Limits the sheet to 88% of the screen so long content scrolls inside it. */
+    /**
+     * Limits the sheet to 88% of the screen so long content scrolls inside it.
+     * The panel is wrap-content, so a plain AT_MOST pass lets the weighted scroller
+     * measure itself as tall as the whole cap and pushes the action row below it.
+     * A sheet that fills the cap is measured again at exactly that height, which
+     * gives the scroller only the space left after the header and the buttons.
+     */
     private static final class MaxHeight extends FrameLayout {
-        MaxHeight(Activity a,View child){super(a);addView(child,new FrameLayout.LayoutParams(-1,-2));}
-        @Override protected void onMeasure(int w,int h){
+        private final View panel;
+        MaxHeight(Activity a,View child){super(a);panel=child;addView(child,new FrameLayout.LayoutParams(-1,-2));}
+        @Override protected void onMeasure(int widthMeasureSpec,int heightMeasureSpec){
             int max=(int)(getResources().getDisplayMetrics().heightPixels*.88f);
-            int mode=MeasureSpec.getMode(h),size=MeasureSpec.getSize(h);
+            int mode=MeasureSpec.getMode(heightMeasureSpec),size=MeasureSpec.getSize(heightMeasureSpec);
             int limit=mode==MeasureSpec.UNSPECIFIED?max:Math.min(max,size);
-            super.onMeasure(w,MeasureSpec.makeMeasureSpec(limit,MeasureSpec.AT_MOST));
+            int padX=getPaddingLeft()+getPaddingRight(),padY=getPaddingTop()+getPaddingBottom();
+            int widthMode=MeasureSpec.getMode(widthMeasureSpec);
+            int childWidth=MeasureSpec.makeMeasureSpec(Math.max(0,MeasureSpec.getSize(widthMeasureSpec)-padX),widthMode==MeasureSpec.UNSPECIFIED?MeasureSpec.UNSPECIFIED:MeasureSpec.EXACTLY);
+            int cap=Math.max(0,limit-padY);
+            panel.measure(childWidth,MeasureSpec.makeMeasureSpec(cap,MeasureSpec.AT_MOST));
+            int panelHeight=panel.getMeasuredHeight();
+            if(cap>0&&panelHeight>=cap){
+                panel.measure(childWidth,MeasureSpec.makeMeasureSpec(cap,MeasureSpec.EXACTLY));
+                panelHeight=panel.getMeasuredHeight();
+            }
+            setMeasuredDimension(resolveSize(panel.getMeasuredWidth()+padX,widthMeasureSpec),resolveSize(panelHeight+padY,heightMeasureSpec));
         }
     }
 }

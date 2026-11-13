@@ -13,6 +13,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Random;
@@ -37,6 +38,8 @@ public final class CreateActivity extends ScreenActivity {
     private Button submit;
     /** Bumps whenever the prompt changes so a late AI reply never renders under a new word. */
     private int generation;
+    /** Sentence restored after rotation. Cleared once the field is rebuilt. */
+    private String draft;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -45,7 +48,10 @@ public final class CreateActivity extends ScreenActivity {
         try {
             pool = buildPool();
             if (pool.length() == 0) throw new Exception("还没有单词卡，请先录词并创建复习任务");
-            if (state != null) wordIndex = state.getInt("wordIndex", -1);
+            if (state != null) {
+                wordIndex = state.getInt("wordIndex", -1);
+                draft = state.getString("draft", "");
+            }
             if (wordIndex < 0 || wordIndex >= pool.length()) pickWord();
             ui.startModal("创造力造句");
             Notice.setBottomOffset(this, 84);
@@ -59,11 +65,13 @@ public final class CreateActivity extends ScreenActivity {
 
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putInt("wordIndex", wordIndex);
+        if (sentence != null) out.putString("draft", sentence.getText().toString());
         super.onSaveInstanceState(out);
     }
 
     @Override protected void onDestroy() {
-        AiClient.cancel(pending);
+        // Leave the grade request running. A failing sentence is written to the wrong book
+        // even if this screen is already gone; the callback skips any view update then.
         interaction.release();
         super.onDestroy();
     }
@@ -147,7 +155,10 @@ public final class CreateActivity extends ScreenActivity {
         TextView label = ui.sectionLabel("你的造句");
         label.setPadding(ui.dp(Theme.SPACE_4), 0, 0, 0);
         ui.body.addView(label, ui.lpMargin(Theme.SPACE_24, Theme.SPACE_8));
-        sentence = WordUi.input(this, "用 " + english + " 写一句英文", "");
+        String restored = draft == null ? "" : draft;
+        draft = null;
+        sentence = WordUi.input(this, "用 " + english + " 写一句英文", restored);
+        if (!restored.isEmpty()) sentence.setSelection(restored.length());
         sentence.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         sentence.setTypeface(Theme.SERIF);
         sentence.setTextSize(17);
@@ -210,7 +221,6 @@ public final class CreateActivity extends ScreenActivity {
         String english = item.optString("english");
         pending = AiClient.chatJson(this, AiPrompts.systemCreateGrade(), AiPrompts.userCreateGrade(english, text), new AiClient.Callback() {
             @Override public void onResult(JSONObject json) {
-                if (isFinishing() || isDestroyed()) return;
                 boolean ok = json.optBoolean("ok", false);
                 String corrected = json.optString("corrected", text).trim();
                 String tip = json.optString("feedback", "").trim();
@@ -227,13 +237,19 @@ public final class CreateActivity extends ScreenActivity {
                 String recordError = null;
                 if (!ok) {
                     try {
-                        AiNotes.addMistake(CreateActivity.this, english, text, tip.isEmpty() ? body.toString() : tip);
+                        AiNotes.addMistake(getApplicationContext(), english, text, tip.isEmpty() ? body.toString() : tip);
                         recorded = true;
                     } catch (Exception e) {
                         recordError = e.getMessage();
                     }
                 }
 
+                // Back or rotation already removed this screen. The mistake is saved; don't touch its views.
+                if (isFinishing() || isDestroyed()) {
+                    if (recorded) Toast.makeText(getApplicationContext(), "已记入造句问题，可在错题本查看", Toast.LENGTH_LONG).show();
+                    else if (recordError != null) Toast.makeText(getApplicationContext(), recordError, Toast.LENGTH_LONG).show();
+                    return;
+                }
                 // The user moved on to another word: keep the recording, skip the stale screen update.
                 if (token != generation) {
                     if (recorded) ui.toast("已记入造句问题，可在错题本查看");
@@ -248,7 +264,7 @@ public final class CreateActivity extends ScreenActivity {
             }
 
             @Override public void onError(String message) {
-                if (token != generation) return;
+                if (isFinishing() || isDestroyed() || token != generation) return;
                 busy(trigger, false);
                 Motion.layout(ui.body);
                 target.removeAllViews();
