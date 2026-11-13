@@ -17,7 +17,6 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Random;
-import java.util.concurrent.Future;
 
 /**
  * "创造力造句": write one English sentence with a given word and let AI grade it.
@@ -32,14 +31,20 @@ public final class CreateActivity extends ScreenActivity {
     private JSONArray pool;
     private int wordIndex = -1;
     private EditText sentence;
-    private Future<?> pending;
     private TextView prompt, hint;
     private LinearLayout result;
     private Button submit;
-    /** Bumps whenever the prompt changes so a late AI reply never renders under a new word. */
-    private int generation;
     /** Sentence restored after rotation. Cleared once the field is rebuilt. */
     private String draft;
+    /** Last shown grade, restored after rotation so the screen does not look unsent. */
+    private String savedResult;
+    /**
+     * One grade survives the activity that started it. Rotation attaches the new screen;
+     * leaving the activity still records a failing sentence exactly once.
+     */
+    private static GradeJob inflight;
+    /** Grade currently drawn on this screen, so rotation can put the same card back. */
+    private GradeJob shown;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -51,6 +56,7 @@ public final class CreateActivity extends ScreenActivity {
             if (state != null) {
                 wordIndex = state.getInt("wordIndex", -1);
                 draft = state.getString("draft", "");
+                savedResult = state.getString("result");
             }
             if (wordIndex < 0 || wordIndex >= pool.length()) pickWord();
             ui.startModal("创造力造句");
@@ -66,12 +72,27 @@ public final class CreateActivity extends ScreenActivity {
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putInt("wordIndex", wordIndex);
         if (sentence != null) out.putString("draft", sentence.getText().toString());
+        if (shown != null && shown.finished && shown.error == null) {
+            try {
+                JSONObject saved = new JSONObject()
+                        .put("text", shown.text)
+                        .put("ok", shown.ok)
+                        .put("corrected", shown.corrected)
+                        .put("tip", shown.tip)
+                        .put("recorded", shown.recorded)
+                        .put("issues", shown.issues == null ? new JSONArray() : shown.issues);
+                out.putString("result", saved.toString());
+            } catch (Exception ignored) {}
+        }
         super.onSaveInstanceState(out);
     }
 
     @Override protected void onDestroy() {
-        // Leave the grade request running. A failing sentence is written to the wrong book
-        // even if this screen is already gone; the callback skips any view update then.
+        if (inflight != null && inflight.owner == this) {
+            inflight.recreating = isChangingConfigurations();
+            inflight.owner = null;
+            if (!inflight.recreating && inflight.finished) finishJob(inflight);
+        }
         interaction.release();
         super.onDestroy();
     }
@@ -105,12 +126,11 @@ public final class CreateActivity extends ScreenActivity {
 
     /** "换一个词": a different word whenever there is more than one to choose from. */
     private void nextWord() {
-        // Grading still in flight for the word being left keeps running so a mistake is still
-        // recorded (as before the redesign); generation++ keeps its result off the new screen.
+        // A grade still running for the word being left keeps running and is recorded once.
+        // It is not drawn on the new word.
         int before = wordIndex;
         pickWord();
         for (int tries = 0; pool.length() > 1 && wordIndex == before && tries < 8; tries++) pickWord();
-        generation++;
         hideKeyboard();
         show(true);
     }
@@ -193,6 +213,7 @@ public final class CreateActivity extends ScreenActivity {
 
         if (forward) Motion.enter(ui.body, 1);
         else Motion.stagger(ui.body);
+        adoptGrade();
     }
 
     private void grade(JSONObject item) {
@@ -205,73 +226,186 @@ public final class CreateActivity extends ScreenActivity {
             showHint("请先写一句");
             return;
         }
+        // Rotation rebuilds this screen while the original request is still running.
+        // Attach to that request instead of sending the same sentence again.
+        if (inflight != null && inflight.matches(wordIndex, text) && !inflight.finished) {
+            inflight.owner = this;
+            showWaiting();
+            return;
+        }
         hideKeyboard();
-        final int token = generation;
-        final Button trigger = submit;
-        final LinearLayout target = result;
-        busy(trigger, true);
-        Motion.layout(ui.body);
-        target.removeAllViews();
-        TextView waiting = ui.type("正在批改…", Theme.T_CALLOUT);
-        waiting.setTextColor(Theme.INK_3);
-        waiting.setPadding(ui.dp(Theme.SPACE_4), 0, 0, 0);
-        target.addView(waiting, WordUi.lp());
-        target.setVisibility(View.VISIBLE);
-
-        String english = item.optString("english");
-        pending = AiClient.chatJson(this, AiPrompts.systemCreateGrade(), AiPrompts.userCreateGrade(english, text), new AiClient.Callback() {
+        showWaiting();
+        GradeJob job = new GradeJob(getApplicationContext(), wordIndex, item.optString("english"), text);
+        job.owner = this;
+        inflight = job;
+        shown = null;
+        AiClient.chatJson(this, AiPrompts.systemCreateGrade(), AiPrompts.userCreateGrade(job.english, text), new AiClient.Callback() {
             @Override public void onResult(JSONObject json) {
-                boolean ok = json.optBoolean("ok", false);
-                String corrected = json.optString("corrected", text).trim();
-                String tip = json.optString("feedback", "").trim();
-                JSONArray issues = json.optJSONArray("issues");
+                job.ok = json.optBoolean("ok", false);
+                job.corrected = json.optString("corrected", text).trim();
+                job.tip = json.optString("feedback", "").trim();
+                job.issues = json.optJSONArray("issues");
                 StringBuilder body = new StringBuilder();
-                body.append(ok ? "通过：" : "需改进：").append(tip.isEmpty() ? (ok ? "用法正确" : "请看改正建议") : tip);
-                if (!corrected.isEmpty() && !corrected.equals(text)) body.append("\n建议：").append(corrected);
-                if (issues != null) for (int i = 0; i < issues.length(); i++) {
-                    String issue = issues.optString(i).trim();
+                body.append(job.ok ? "通过：" : "需改进：").append(job.tip.isEmpty() ? (job.ok ? "用法正确" : "请看改正建议") : job.tip);
+                if (!job.corrected.isEmpty() && !job.corrected.equals(text)) body.append("\n建议：").append(job.corrected);
+                if (job.issues != null) for (int i = 0; i < job.issues.length(); i++) {
+                    String issue = job.issues.optString(i).trim();
                     if (!issue.isEmpty()) body.append("\n· ").append(issue);
                 }
-
-                boolean recorded = false;
-                String recordError = null;
-                if (!ok) {
+                if (!job.ok) {
                     try {
-                        AiNotes.addMistake(getApplicationContext(), english, text, tip.isEmpty() ? body.toString() : tip);
-                        recorded = true;
+                        AiNotes.addMistake(job.app, job.english, text, job.tip.isEmpty() ? body.toString() : job.tip);
+                        job.recorded = true;
                     } catch (Exception e) {
-                        recordError = e.getMessage();
+                        job.recordError = e.getMessage();
                     }
                 }
-
-                // Back or rotation already removed this screen. The mistake is saved; don't touch its views.
-                if (isFinishing() || isDestroyed()) {
-                    if (recorded) Toast.makeText(getApplicationContext(), "已记入造句问题，可在错题本查看", Toast.LENGTH_LONG).show();
-                    else if (recordError != null) Toast.makeText(getApplicationContext(), recordError, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                // The user moved on to another word: keep the recording, skip the stale screen update.
-                if (token != generation) {
-                    if (recorded) ui.toast("已记入造句问题，可在错题本查看");
-                    else if (recordError != null) ui.error(recordError);
-                    return;
-                }
-                busy(trigger, false);
-                renderResult(target, ok, tip, corrected, text, issues, recorded);
-                interaction.respond(trigger, ok ? Feedback.KNOWN : Feedback.RETRY);
-                if (recorded) ui.toast("已记入造句问题，可在错题本查看");
-                else if (recordError != null) ui.error(recordError);
+                job.finished = true;
+                deliver(job);
             }
 
             @Override public void onError(String message) {
-                if (isFinishing() || isDestroyed() || token != generation) return;
-                busy(trigger, false);
-                Motion.layout(ui.body);
-                target.removeAllViews();
-                target.setVisibility(View.GONE);
-                ui.error(message);
+                job.error = message;
+                job.finished = true;
+                deliver(job);
             }
         });
+    }
+
+    /** Show a grade that belongs to the word and sentence now on screen. */
+    private void adoptGrade() {
+        GradeJob job = inflight;
+        if (job != null && job.matches(wordIndex, sentence.getText().toString().trim())) {
+            job.owner = this;
+            if (!job.finished) {
+                showWaiting();
+                return;
+            }
+            present(job, true);
+            if (inflight == job) inflight = null;
+            return;
+        }
+        if (savedResult == null) return;
+        try {
+            JSONObject saved = new JSONObject(savedResult);
+            savedResult = null;
+            if (!saved.optString("text").equals(sentence.getText().toString().trim())) return;
+            GradeJob restored = new GradeJob(getApplicationContext(), wordIndex, "", saved.optString("text"));
+            restored.ok = saved.optBoolean("ok");
+            restored.corrected = saved.optString("corrected");
+            restored.tip = saved.optString("tip");
+            restored.recorded = saved.optBoolean("recorded");
+            restored.issues = saved.optJSONArray("issues");
+            restored.finished = true;
+            present(restored, false);
+        } catch (Exception ignored) {
+            savedResult = null;
+        }
+    }
+
+    private void showWaiting() {
+        busy(submit, true);
+        Motion.layout(ui.body);
+        result.removeAllViews();
+        TextView waiting = ui.type("正在批改…", Theme.T_CALLOUT);
+        waiting.setTextColor(Theme.INK_3);
+        waiting.setPadding(ui.dp(Theme.SPACE_4), 0, 0, 0);
+        result.addView(waiting, WordUi.lp());
+        result.setVisibility(View.VISIBLE);
+    }
+
+    /** Draw the result on the live screen, or keep it for the screen rotation is about to create. */
+    private static void deliver(GradeJob job) {
+        CreateActivity owner = job.owner;
+        boolean alive = owner != null && !owner.isFinishing() && !owner.isDestroyed();
+        if (alive && owner.wordIndex == job.wordIndex && owner.sameSentence(job.text)) {
+            owner.present(job, true);
+            if (inflight == job) inflight = null;
+            return;
+        }
+        if (alive) {
+            if (owner.wordIndex == job.wordIndex) owner.clearWaiting();
+            owner.noteOffscreen(job);
+            if (inflight == job) inflight = null;
+            return;
+        }
+        boolean recreating = job.recreating || (owner != null && owner.isChangingConfigurations());
+        if (recreating) {
+            job.recreating = true;
+            job.owner = null;
+            return;
+        }
+        finishJob(job);
+    }
+
+    private static void finishJob(GradeJob job) {
+        if (job.recorded) Toast.makeText(job.app, "已记入造句问题，可在错题本查看", Toast.LENGTH_LONG).show();
+        else if (job.recordError != null) Toast.makeText(job.app, job.recordError, Toast.LENGTH_LONG).show();
+        if (inflight == job) inflight = null;
+    }
+
+    private boolean sameSentence(String text) {
+        return sentence != null && sentence.getText().toString().trim().equals(text);
+    }
+
+    private void clearWaiting() {
+        busy(submit, false);
+        if (result == null || shown != null) return;
+        result.removeAllViews();
+        result.setVisibility(View.GONE);
+    }
+
+    private void present(GradeJob job, boolean announce) {
+        shown = job;
+        busy(submit, false);
+        if (job.error != null) {
+            Motion.layout(ui.body);
+            result.removeAllViews();
+            result.setVisibility(View.GONE);
+            if (announce) ui.error(job.error);
+            return;
+        }
+        renderResult(result, job.ok, job.tip, job.corrected, job.text, job.issues, job.recorded);
+        if (!announce) return;
+        interaction.respond(submit, job.ok ? Feedback.KNOWN : Feedback.RETRY);
+        if (job.recorded) ui.toast("已记入造句问题，可在错题本查看");
+        else if (job.recordError != null) ui.error(job.recordError);
+    }
+
+    /** The grade belongs to a word this screen is no longer showing. */
+    private void noteOffscreen(GradeJob job) {
+        if (job.recorded) ui.toast("已记入造句问题，可在错题本查看");
+        else if (job.recordError != null) ui.error(job.recordError);
+        else if (job.error != null) ui.error(job.error);
+    }
+
+    /** One in-flight or just-finished grade, independent of any single activity instance. */
+    private static final class GradeJob {
+        final Context app;
+        final int wordIndex;
+        final String english;
+        final String text;
+        CreateActivity owner;
+        boolean recreating;
+        boolean finished;
+        boolean ok;
+        boolean recorded;
+        String corrected = "";
+        String tip = "";
+        String recordError;
+        String error;
+        JSONArray issues;
+
+        GradeJob(Context app, int wordIndex, String english, String text) {
+            this.app = app;
+            this.wordIndex = wordIndex;
+            this.english = english;
+            this.text = text;
+        }
+
+        boolean matches(int index, String sentence) {
+            return wordIndex == index && text.equals(sentence);
+        }
     }
 
     /** Result card: verdict chip + note, then the suggested rewrite and any issues. */
