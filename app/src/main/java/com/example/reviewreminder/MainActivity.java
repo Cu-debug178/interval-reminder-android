@@ -84,6 +84,13 @@ public class MainActivity extends ScreenActivity {
     private Check saveSettings;
     private Draft settingsDraft;
     private String settingsDraftStart;
+    private int aiUiToken,aiProbeGen;
+    private java.util.concurrent.Future<?> aiJob;
+    private Sheet aiEditor;
+    /** Page-level “测试连接” button disabled for the current retest. */
+    private Button aiPageTestButton;
+    /** A list retest finished while the editor was open; refresh after the sheet closes. */
+    private boolean aiListDirty;
 
     private boolean exactStateKnown,lastExactAllowed,setupRuleChosen;
     private Dialog setupDialog,permissionDialog;
@@ -282,6 +289,11 @@ public class MainActivity extends ScreenActivity {
     }
 
     private void renderPage(boolean fresh){
+        aiUiToken++;
+        aiProbeGen++;
+        AiClient.cancel(aiJob);
+        aiPageTestButton=null;
+        if(aiEditor!=null&&aiEditor.isShowing())aiEditor.dismiss();
         animateNumbers=fresh;
         saveSettings=null;
         settingsDraft=null;
@@ -1184,11 +1196,7 @@ public class MainActivity extends ScreenActivity {
         if(!ReminderWindows.restricted(this)||windows.isEmpty())return "全天可提醒";
         return windows.replace(",","、");
     }
-    private String aiSummary(){
-        if(!AiSettings.enabled(this))return "未开启 · DeepSeek / 小米 MiMo / 自定义";
-        String[] providers={"DeepSeek","小米 MiMo","自定义端点"};
-        return "已开启 · "+providers[AiSettings.provider(this)];
-    }
+    private String aiSummary(){return AiSettings.summary(this);}
     private String permissionSummary(){
         boolean exactOk=!Notifications.exactPermissionNeeded(this)||Notifications.exactAllowed(this);
         if(Notifications.enabled(this)&&exactOk)return "通知与精确提醒均已开启";
@@ -1574,8 +1582,15 @@ public class MainActivity extends ScreenActivity {
         previews.addView(ui.quietPill("试听：忘记了",R.drawable.ic_volume_2,v->interaction.preview(this,Feedback.RETRY)),margins(-2,dp2(Theme.BUTTON_SMALL),Theme.SPACE_8,0,0,0));
         feedback.addView(previews,WordUi.lp());
         Switch haptic=ui.switchRow(feedback,"卡片交互触感",null,prefs.getBoolean("haptic",true));
-        // The pref is only saved on leaving the category, so tick from the switch's own new state.
-        haptic.setOnCheckedChangeListener((b,on)->{if(on)b.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);});
+        // The pref is written only when leaving this page. Decide from the switch's current
+        // state at finger down: turning it off stays silent, turning it on ticks immediately.
+        haptic.setOnTouchListener((v,event)->{
+            int action=event.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN)Feedback.pressToggle(v,haptic.isChecked());
+            else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)Feedback.releasePress(v);
+            return false;
+        });
+        haptic.setOnCheckedChangeListener((b,on)->{if(on&&!Feedback.held())b.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);});
         Switch reminderSound=ui.switchRow(feedback,"到期通知使用声音",null,prefs.getBoolean("reminderSound",true));
         content.addView(feedback,WordUi.lp());
         ui.note(content,"到期通知使用系统通知声音，仍受系统静音与勿扰设置影响。");
@@ -1618,76 +1633,353 @@ public class MainActivity extends ScreenActivity {
     private void aiSettings(){
         LinearLayout switchGroup=ui.group();
         Switch enabled=ui.switchRow(switchGroup,"启用 AI 功能","可选，默认关闭；未开启时仍可离线复习",AiSettings.enabled(this));
+        enabled.setOnCheckedChangeListener((b,on)->{
+            Feedback.tick(b);
+            if(!AiSettings.setEnabled(this,on))error("设置未能保存");
+        });
         content.addView(switchGroup,margins(-1,-2,0,Theme.SPACE_16,0,0));
 
-        ui.section(content,"服务商",null);
-        Segmented provider=ui.segmented(new String[]{"DeepSeek","小米 MiMo","自定义"},AiSettings.provider(this),null);
-        content.addView(provider,WordUi.lp());
+        JSONObject active=AiSettings.active(this);
+        ui.section(content,"当前模型",null);
+        LinearLayout current=ui.group();
+        LinearLayout block=ui.col();
+        block.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_16),dp(Theme.ROW_PAD),dp(Theme.SPACE_16));
+        if(active==null){
+            TextView none=ui.type("尚未选择",Theme.T_HEADLINE);
+            block.addView(none);
+            TextView hint=ui.type("添加配置并通过连接检测后，这里会显示正在使用的模型。",Theme.T_CAPTION);
+            block.addView(hint,margins(-1,-2,0,Theme.SPACE_4,0,0));
+        }else{
+            TextView model=ui.type(AiSettings.modelOf(active),Theme.T_HEADLINE);
+            block.addView(model);
+            TextView meta=ui.type(active.optString("name")+" · "+AiSettings.providerLabel(active),Theme.T_CAPTION);
+            block.addView(meta,margins(-1,-2,0,Theme.SPACE_4,0,0));
+            TextView state=ui.type(AiSettings.statusText(active),Theme.T_CAPTION);
+            state.setTextColor(AiSettings.failed(active)?Theme.DANGER:Theme.PRIMARY);
+            block.addView(state,margins(-1,-2,0,2,0,0));
+        }
+        current.addView(block,WordUi.lp());
+        Button test=ui.tonalButton("测试连接",0,v->testAiConfig(AiSettings.active(this),(Button)v));
+        current.addView(test,margins(-1,-2,Theme.ROW_PAD,0,Theme.ROW_PAD,Theme.SPACE_16));
+        content.addView(current,WordUi.lp());
 
-        ui.section(content,"连接",null);
-        LinearLayout form=ui.col();
-        fieldLabel(form,"Base URL",0);
-        EditText base=ui.input("https://",AiSettings.storedBaseUrl(this).isEmpty()?AiSettings.baseUrl(this):AiSettings.storedBaseUrl(this));
-        base.setSingleLine(true);
-        base.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
-        form.addView(base,WordUi.lp());
-        String existingKey=AiSettings.apiKey(this);
-        fieldLabel(form,"API Key",Theme.SPACE_16);
-        EditText key=ui.input(existingKey.isEmpty()?"粘贴 API Key":"留空则保留已保存："+AiSecrets.mask(existingKey),"");
-        key.setSingleLine(true);
-        key.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        form.addView(key,WordUi.lp());
-        fieldLabel(form,"模型名",Theme.SPACE_16);
-        EditText model=ui.input("模型名",AiSettings.storedModel(this).isEmpty()?AiSettings.model(this):AiSettings.storedModel(this));
-        model.setSingleLine(true);
-        form.addView(model,WordUi.lp());
-        content.addView(form,WordUi.lp());
-
-        provider.setOnPick(position->{
-            if(position==AiSettings.PROVIDER_DEEPSEEK){
-                base.setText(AiSettings.DEEPSEEK_URL);
-                if(model.getText().toString().trim().isEmpty()||model.getText().toString().contains("mimo")||model.getText().toString().equals(AiSettings.MIMO_MODEL))model.setText(AiSettings.DEEPSEEK_MODEL);
-            }else if(position==AiSettings.PROVIDER_MIMO){
-                base.setText(AiSettings.MIMO_URL);
-                if(model.getText().toString().trim().isEmpty()||model.getText().toString().contains("deepseek")||model.getText().toString().equals(AiSettings.DEEPSEEK_MODEL))model.setText(AiSettings.MIMO_MODEL);
+        JSONArray configs=AiSettings.configs(this);
+        ui.section(content,"已添加的配置",configs.length()==0?null:String.valueOf(configs.length()));
+        LinearLayout list=ui.group();
+        if(configs.length()==0){
+            TextView empty=ui.type("还没有检测通过的配置",Theme.T_CALLOUT);
+            empty.setTextColor(Theme.INK_3);
+            empty.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_16),dp(Theme.ROW_PAD),dp(Theme.SPACE_16));
+            list.addView(empty,WordUi.lp());
+        }else{
+            for(int i=0;i<configs.length();i++){
+                JSONObject config=configs.optJSONObject(i);
+                if(config!=null)aiConfigRow(list,config);
             }
-        });
+        }
+        content.addView(list,WordUi.lp());
+        content.addView(ui.tonalButton("添加配置",R.drawable.ic_plus,v->showAiEditor(null)),margins(-1,-2,0,Theme.SPACE_16,0,0));
+        ui.note(content,"可添加多项配置：DeepSeek、小米 MiMo，或任意 OpenAI 兼容地址（可带或不带 /v1）。只有连接检测通过才会列入上方列表，并显示当前模型。Key 经本机密钥库加密，保存后只显示掩码。");
 
-        Button test=ui.tonalButton("测试连接",0,null);
-        test.setOnClickListener(v->{
-            if(!AiSettings.save(this,true,provider.getSelectedItemPosition(),base.getText().toString(),model.getText().toString(),key.getText().toString())){error("设置未能保存");return;}
-            if(AiSettings.apiKey(this).isEmpty()){error("请填写 API Key");return;}
-            test.setText("正在测试…");
-            WordUi.enable(test,false);
-            AiClient.chatJson(this,AiPrompts.systemPing(),AiPrompts.userPing(),new AiClient.Callback(){
-                @Override public void onResult(JSONObject json){
-                    test.setText("测试连接");
-                    WordUi.enable(test,true);
-                    toast(json.optBoolean("ok",true)?"连接成功："+json.optString("message","ok"):"连接成功");
-                }
-                @Override public void onError(String message){
-                    test.setText("测试连接");
-                    WordUi.enable(test,true);
-                    error(message);
-                }
-            });
-        });
-        content.addView(test,margins(-1,-2,0,Theme.SPACE_24,0,0));
-        Button clear=ui.dangerTextButton("清除本机 API Key",v->{
-            AiSecrets.clear(this);
-            key.setText("");
-            key.setHint("粘贴 API Key");
-            toast("已清除 Key");
-        });
-        content.addView(clear,margins(-2,-2,-Theme.SPACE_8,Theme.SPACE_8,0,0));
-        ui.note(content,"Key 经本机密钥库加密保存，不会上传或写入工程文件。文本整理/复盘可用 DeepSeek；照片识词请用小米 MiMo，MiMo 请用按量 sk- Key。");
-
-        settingsDraft=()->enabled.isChecked()+"|"+provider.getSelected()+"|"+base.getText()+"|"+model.getText()+"|"+key.getText();
+        settingsDraft=()->String.valueOf(enabled.isChecked());
         saveSettings=()->{
-            boolean ok=AiSettings.save(this,enabled.isChecked(),provider.getSelectedItemPosition(),base.getText().toString(),model.getText().toString(),key.getText().toString());
+            boolean ok=AiSettings.setEnabled(this,enabled.isChecked());
             if(!ok)error("设置未能保存");
             return ok;
         };
+    }
+
+    private void aiConfigRow(LinearLayout group,JSONObject config){
+        ui.divide(group,Theme.ROW_PAD);
+        LinearLayout row=ui.row();
+        row.setMinimumHeight(dp(72));
+        row.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_12),dp(Theme.SPACE_12),dp(Theme.SPACE_12));
+        LinearLayout copy=ui.col();
+        TextView name=ui.type(config.optString("name"),Theme.T_BODY);
+        name.setTypeface(Theme.MEDIUM);
+        name.setMaxLines(1);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        copy.addView(name);
+        TextView meta=ui.type(AiSettings.describe(config),Theme.T_CAPTION);
+        meta.setMaxLines(2);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
+        copy.addView(meta,margins(-1,-2,0,2,0,0));
+        boolean fail=AiSettings.failed(config);
+        TextView state=ui.type(AiSettings.statusText(config),Theme.T_CAPTION);
+        state.setTextColor(fail?Theme.DANGER:Theme.PRIMARY);
+        state.setMaxLines(2);
+        copy.addView(state,margins(-1,-2,0,2,0,0));
+        row.addView(copy,WordUi.weight());
+        if(config.optString("id").equals(AiSettings.activeId(this)))row.addView(ui.chip("使用中",Theme.PRIMARY_SOFT,Theme.PRIMARY),margins(-2,-2,Theme.SPACE_8,0,Theme.SPACE_4,0));
+        row.addView(ui.icon(R.drawable.ic_chevron_right,Theme.INK_3),margins(dp2(Theme.ICON_SMALL),dp2(Theme.ICON_SMALL),Theme.SPACE_4,0,0,0));
+        String label=config.optString("name")+"，"+AiSettings.describe(config)+"，"+AiSettings.statusText(config);
+        row.setContentDescription(label);
+        clickable(row,v->aiConfigMenu(config),.985f);
+        group.addView(row,WordUi.lp());
+    }
+
+    private void aiConfigMenu(JSONObject config){
+        boolean active=config.optString("id").equals(AiSettings.activeId(this));
+        Sheet sheet=new Sheet(this).title(config.optString("name")).message(AiSettings.describe(config)+(active?" · 使用中":""));
+        if(!active)sheet.item(R.drawable.ic_check,"设为当前使用",()->{
+            if(!AiSettings.setActive(this,config.optString("id"))){error("未能切换");return;}
+            toast("当前模型："+config.optString("model"));
+            Feedback.tick(content);
+            renderAtScroll();
+        });
+        sheet.item(R.drawable.ic_pencil,"编辑",()->showAiEditor(config));
+        sheet.item(R.drawable.ic_rotate_cw,"测试连接",()->testAiConfig(config,null));
+        sheet.dangerItem(R.drawable.ic_trash_2,"删除",()->Sheet.confirm(this,"删除这项配置？","「"+config.optString("name")+"」会从本机移除，密钥一并清除。","取消","删除",true,()->{
+            if(!AiSettings.delete(this,config.optString("id"))){error("未能删除");return;}
+            toast("已删除「"+config.optString("name")+"」");
+            renderAtScroll();
+        }));
+        sheet.show();
+    }
+
+    private void testAiConfig(JSONObject config,Button button){
+        if(config==null){error("请先添加一项通过检测的配置");return;}
+        String id=config.optString("id");
+        String key=AiSecrets.readApiKey(this,id);
+        if(key.isEmpty()){error("这项配置缺少 API Key");return;}
+        int probe=++aiProbeGen;
+        AiClient.cancel(aiJob);
+        releasePageTestButton();
+        if(button!=null){aiPageTestButton=button;button.setText("正在检测连接…");WordUi.enable(button,false);}
+        else toast("正在检测连接…");
+        aiJob=AiClient.probe(config.optString("baseUrl"),key,config.optString("model"),(ok,message,models)->{
+            if(probe!=aiProbeGen||isFinishing())return;
+            if(!AiSettings.markCheck(this,id,ok,ok?"已连接":message)){
+                releasePageTestButton();
+                error("设置未能保存");
+                return;
+            }
+            if(ok)toast("连接成功 · "+config.optString("model"));
+            else error(message);
+            // Rebuilding the page dismisses an open editor and drops an in-flight save.
+            if(aiEditor!=null&&aiEditor.isShowing()){releasePageTestButton();aiListDirty=true;return;}
+            aiPageTestButton=null;
+            renderAtScroll();
+        });
+    }
+
+    /** Puts the page test button back. A newer editor check supersedes the retest and must not leave it disabled. */
+    private void releasePageTestButton(){
+        Button button=aiPageTestButton;
+        aiPageTestButton=null;
+        if(button==null||!button.isAttachedToWindow())return;
+        button.setText("测试连接");
+        WordUi.enable(button,true);
+    }
+
+    private void showAiEditor(JSONObject existing){
+        boolean editing=existing!=null;
+        String existingId=editing?existing.optString("id"):null;
+        LinearLayout form=ui.col();
+        fieldLabel(form,"显示名称",0);
+        EditText name=ui.input("例如：我的 DeepSeek",editing?existing.optString("name"):AiSettings.defaultName(AiSettings.PROVIDER_DEEPSEEK));
+        name.setSingleLine(true);
+        form.addView(name,WordUi.lp());
+        fieldLabel(form,"服务商",Theme.SPACE_16);
+        int initial=editing?existing.optInt("provider",AiSettings.PROVIDER_DEEPSEEK):AiSettings.PROVIDER_DEEPSEEK;
+        Segmented provider=ui.segmented(new String[]{"DeepSeek","小米 MiMo","自定义"},initial,null);
+        form.addView(provider,margins(-1,-2,0,Theme.SPACE_8,0,0));
+        fieldLabel(form,"Base URL",Theme.SPACE_16);
+        String initialUrl=editing?existing.optString("baseUrl"):AiSettings.DEEPSEEK_URL;
+        EditText base=ui.input("https://",initialUrl);
+        base.setSingleLine(true);
+        base.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        form.addView(base,WordUi.lp());
+        String storedKey=editing?AiSecrets.readApiKey(this,existingId):"";
+        fieldLabel(form,"API Key",Theme.SPACE_16);
+        EditText key=ui.input(storedKey.isEmpty()?"粘贴 API Key":"留空则保留已保存："+AiSecrets.mask(storedKey),"");
+        key.setSingleLine(true);
+        key.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(key,WordUi.lp());
+        fieldLabel(form,"模型",Theme.SPACE_16);
+        EditText model=ui.input("模型名，可手动填写",editing?existing.optString("model"):AiSettings.DEEPSEEK_MODEL);
+        model.setSingleLine(true);
+        form.addView(model,WordUi.lp());
+        Button fetch=ui.tonalButton("获取模型",0,null);
+        form.addView(fetch,margins(-1,-2,0,Theme.SPACE_12,0,0));
+        TextView status=ui.type("",Theme.T_CALLOUT);
+        status.setVisibility(View.GONE);
+        form.addView(status,margins(-1,-2,Theme.SPACE_4,Theme.SPACE_8,0,0));
+        if(editing){
+            form.addView(ui.dangerTextButton("删除此配置",v->Sheet.confirm(this,"删除这项配置？","「"+existing.optString("name")+"」会从本机移除，密钥一并清除。","取消","删除",true,()->{
+                if(!AiSettings.delete(this,existingId)){error("未能删除");return;}
+                toast("已删除「"+existing.optString("name")+"」");
+                if(aiEditor!=null){Sheet open=aiEditor;aiEditor=null;open.dismiss();}
+                renderAtScroll();
+            })),margins(-2,-2,-Theme.SPACE_8,Theme.SPACE_4,0,0));
+        }
+        TextView hint=ui.type("检测通过后才会加入列表。Key 保存后只显示掩码。",Theme.T_CAPTION);
+        form.addView(hint,margins(-1,-2,Theme.SPACE_4,Theme.SPACE_8,0,0));
+
+        final boolean[] nameEdited={editing},ignoreName={false},running={false};
+        final int[] testedProvider={initial};
+        onText(name,()->{if(!ignoreName[0])nameEdited[0]=true;});
+        provider.setOnPick(position->{
+            if(running[0]){provider.setSelected(testedProvider[0],false);return;}
+            if(position==AiSettings.PROVIDER_DEEPSEEK){
+                base.setText(AiSettings.DEEPSEEK_URL);
+                String current=model.getText().toString().trim();
+                if(current.isEmpty()||current.contains("mimo")||current.equals(AiSettings.MIMO_MODEL))model.setText(AiSettings.DEEPSEEK_MODEL);
+            }else if(position==AiSettings.PROVIDER_MIMO){
+                base.setText(AiSettings.MIMO_URL);
+                String current=model.getText().toString().trim();
+                if(current.isEmpty()||current.contains("deepseek")||current.equals(AiSettings.DEEPSEEK_MODEL))model.setText(AiSettings.MIMO_MODEL);
+            }
+            if(!nameEdited[0]){
+                ignoreName[0]=true;
+                name.setText(AiSettings.defaultName(position));
+                ignoreName[0]=false;
+            }
+        });
+
+        Sheet sheet=new Sheet(this).title(editing?"编辑配置":"添加配置").content(form);
+        aiEditor=sheet;
+        fetch.setOnClickListener(v->{
+            if(running[0])return;
+            String typed=key.getText().toString().trim();
+            String effective=typed.isEmpty()?storedKey:typed;
+            String baseError=AiSettings.validateBase(base.getText().toString());
+            if(baseError!=null){showAiStatus(status,baseError,true);return;}
+            if(effective.isEmpty()){showAiStatus(status,"请填写 API Key",true);return;}
+            int probe=++aiProbeGen;
+            AiClient.cancel(aiJob);
+            releasePageTestButton();
+            running[0]=true;
+            testedProvider[0]=provider.getSelectedItemPosition();
+            lockAiForm(true,name,base,key,model,provider,fetch,null);
+            fetch.setText("正在获取模型…");
+            String fetchBase=base.getText().toString();
+            aiJob=AiClient.models(fetchBase,effective,(ok,message,models)->{
+                if(probe!=aiProbeGen||isFinishing()||!sheet.isShowing())return;
+                running[0]=false;
+                fetch.setText("获取模型");
+                lockAiForm(false,name,base,key,model,provider,fetch,null);
+                if(!ok){showAiStatus(status,message,true);error(message);return;}
+                if(models==null||models.isEmpty()){showAiStatus(status,message,false);toast(message);return;}
+                status.setVisibility(View.GONE);
+                toast(message);
+                pickAiModel(model,models);
+            });
+        });
+        sheet.secondary("取消",null);
+        sheet.primaryIf("测试并保存",()->{
+            if(running[0])return false;
+            String typedKey=key.getText().toString().trim();
+            String effective=typedKey.isEmpty()?storedKey:typedKey;
+            String chosen=model.getText().toString().trim();
+            String baseValue=base.getText().toString();
+            int providerValue=provider.getSelectedItemPosition();
+            String baseError=AiSettings.validateBase(baseValue);
+            if(baseError!=null){showAiStatus(status,baseError,true);return false;}
+            if(effective.isEmpty()){showAiStatus(status,"请填写 API Key",true);return false;}
+            if(chosen.isEmpty()){showAiStatus(status,"请填写或选择模型",true);return false;}
+            int probe=++aiProbeGen;
+            AiClient.cancel(aiJob);
+            releasePageTestButton();
+            running[0]=true;
+            testedProvider[0]=providerValue;
+            Button save=sheet.primaryButton();
+            save.setText("正在检测连接…");
+            lockAiForm(true,name,base,key,model,provider,fetch,save);
+            String displayName=name.getText().toString().trim();
+            if(displayName.isEmpty())displayName=AiSettings.defaultName(providerValue);
+            final String finalName=displayName;
+            aiJob=AiClient.probe(baseValue,effective,chosen,(ok,message,models)->{
+                if(probe!=aiProbeGen||isFinishing()||!sheet.isShowing())return;
+                running[0]=false;
+                save.setText("测试并保存");
+                lockAiForm(false,name,base,key,model,provider,fetch,save);
+                if(!ok){showAiStatus(status,message,true);error(message);return;}
+                boolean makeActive=existing==null&&AiSettings.active(this)==null;
+                String detail=message.startsWith("连接成功")?"已连接":message;
+                // Persist the endpoint that was actually probed, not a provider switch made during the check.
+                if(!AiSettings.commitVerified(this,existingId,finalName,providerValue,baseValue,chosen,typedKey,detail,makeActive)){
+                    showAiStatus(status,"设置未能保存",true);
+                    error("设置未能保存");
+                    return;
+                }
+                Feedback.tick(save);
+                toast((editing?"已保存「":"已添加「")+finalName+"」· "+chosen);
+                aiListDirty=false;
+                aiEditor=null;
+                sheet.dismiss();
+                renderAtScroll();
+            });
+            return false;
+        });
+        sheet.onDismiss(()->{
+            if(aiEditor==sheet)aiEditor=null;
+            if(aiListDirty&&settingsCategory==4&&currentPage==2){aiListDirty=false;renderAtScroll();}
+        });
+        sheet.show();
+    }
+
+    /** Locks the form while a check is in flight so a later edit cannot be saved as if it were tested. */
+    private void lockAiForm(boolean lock,EditText name,EditText base,EditText key,EditText model,Segmented provider,Button fetch,Button save){
+        WordUi.enable(name,!lock);
+        WordUi.enable(base,!lock);
+        WordUi.enable(key,!lock);
+        WordUi.enable(model,!lock);
+        provider.setAlpha(lock?.38f:1f);
+        setEnabledTree(provider,!lock);
+        if(fetch!=null)WordUi.enable(fetch,!lock);
+        if(save!=null)WordUi.enable(save,!lock);
+    }
+
+    private void setEnabledTree(View view,boolean enabled){
+        view.setEnabled(enabled);
+        if(!(view instanceof android.view.ViewGroup))return;
+        android.view.ViewGroup group=(android.view.ViewGroup)view;
+        for(int i=0;i<group.getChildCount();i++)setEnabledTree(group.getChildAt(i),enabled);
+    }
+
+    private void pickAiModel(EditText target,java.util.List<String> models){
+        LinearLayout box=ui.col();
+        EditText filter=null;
+        if(models.size()>12){
+            filter=ui.input("筛选模型","");
+            filter.setSingleLine(true);
+            box.addView(filter,WordUi.lp());
+        }
+        LinearLayout list=ui.col();
+        box.addView(list,margins(-1,-2,0,filter==null?0:Theme.SPACE_8,0,0));
+        Sheet sheet=new Sheet(this).title("选择模型").message("点选后填入。列表里没有的，可以关闭后自己输入。").content(box);
+        EditText query=filter;
+        Runnable fill=()->{
+            list.removeAllViews();
+            String q=query==null?"":query.getText().toString().trim().toLowerCase(Locale.ROOT);
+            int shown=0,hidden=0;
+            String current=target.getText().toString().trim();
+            for(String id:models){
+                if(!q.isEmpty()&&!id.toLowerCase(Locale.ROOT).contains(q))continue;
+                if(shown>=80){hidden++;continue;}
+                shown++;
+                TextView row=ui.type(id,Theme.T_BODY);
+                row.setMinHeight(dp(48));
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(0,dp(Theme.SPACE_8),0,dp(Theme.SPACE_8));
+                if(id.equals(current)){row.setTextColor(Theme.PRIMARY);row.setTypeface(Theme.MEDIUM);}
+                clickable(row,v->{target.setText(id);sheet.dismiss();},.985f);
+                list.addView(row,WordUi.lp());
+            }
+            if(shown==0)list.addView(ui.type("没有匹配的模型，请换个关键词或手动填写。",Theme.T_CAPTION),WordUi.lp());
+            else if(hidden>0)list.addView(ui.type("还有 "+hidden+" 个，输入关键词继续筛选。",Theme.T_CAPTION),margins(-1,-2,0,Theme.SPACE_8,0,0));
+        };
+        if(query!=null)onText(query,fill);
+        fill.run();
+        sheet.show();
+    }
+
+    private void showAiStatus(TextView status,String message,boolean failure){
+        status.setText(message);
+        status.setTextColor(failure?Theme.DANGER:Theme.INK_2);
+        if(status.getVisibility()!=View.VISIBLE){status.setVisibility(View.VISIBLE);Motion.enter(status);}
+        if(failure)Feedback.tick(status);
     }
 
     private void permissionSettings(){

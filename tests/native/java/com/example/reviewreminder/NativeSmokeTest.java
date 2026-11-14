@@ -26,6 +26,10 @@ public final class NativeSmokeTest extends Instrumentation {
     private View findClickable(View v,String text){return findClickable(v,text,false);}
     private View findContains(View v,String text){if(v instanceof TextView&&((TextView)v).getText().toString().contains(text))return v;if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int i=0;i<g.getChildCount();i++){View hit=findContains(g.getChildAt(i),text);if(hit!=null)return hit;}}return null;}
     private View findDescription(View v,String text){if(text.contentEquals(v.getContentDescription()==null?"":v.getContentDescription()))return v;if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int i=0;i<g.getChildCount();i++){View hit=findDescription(g.getChildAt(i),text);if(hit!=null)return hit;}}return null;}
+    private View findTextInWindows(String text)throws Exception{
+        try{Class<?> wmg=Class.forName("android.view.WindowManagerGlobal");Object global=wmg.getMethod("getInstance").invoke(null);Field viewsField=wmg.getDeclaredField("mViews");viewsField.setAccessible(true);java.util.List<?> roots=(java.util.List<?>)viewsField.get(global);if(roots!=null)for(int i=roots.size()-1;i>=0;i--){Object root=roots.get(i);if(!(root instanceof View))continue;View hit=findContains((View)root,text);if(hit!=null)return hit;}}catch(Throwable ignored){}
+        return null;
+    }
     private View findClickableInWindows(String text,boolean exact)throws Exception{
         try{Class<?> wmg=Class.forName("android.view.WindowManagerGlobal");Object global=wmg.getMethod("getInstance").invoke(null);Field viewsField=wmg.getDeclaredField("mViews");viewsField.setAccessible(true);java.util.List<?> roots=(java.util.List<?>)viewsField.get(global);if(roots!=null)for(int i=roots.size()-1;i>=0;i--){Object root=roots.get(i);if(!(root instanceof View))continue;View hit=findClickable((View)root,text,exact);if(hit!=null)return hit;}}catch(Throwable ignored){}
         return null;
@@ -40,6 +44,7 @@ public final class NativeSmokeTest extends Instrumentation {
         check(draft.optJSONArray("photos")==null||draft.optJSONArray("photos").length()==0,"Lesson 1 draft has no photo attachments");
         check(!AiSettings.ready(getTargetContext()),"AI is disabled by default without an API key");
         check(AiClient.extractJson("```json\n{\"ok\":true}\n```").optBoolean("ok"),"AiClient strips markdown fences from JSON");
+        testAiConfigs();
         JSONObject masteryWord=new JSONObject().put("mastery",2).put("masteryStreak",0);Mastery.remember(masteryWord);check(Mastery.level(masteryWord)==3,"mastery increases on remember");Mastery.forget(masteryWord);check(Mastery.level(masteryWord)==2,"mastery decreases on forget");
         ReviewSession attemptProbe=new ReviewSession(1,false,42L);check(attemptProbe.attemptsForCurrent()==0,"review session exposes first-attempt counter for mastery gating");
         JSONObject senseWord=new JSONObject().put("english","book").put("chinese","n. 书；v. 预订").put("example","");JSONArray senses=Senses.migrate(senseWord);check(senses.length()>=2,"multi-sense chinese migrates to senses[]");check(Senses.label(senses.optJSONObject(0)).contains("书"),"first sense keeps noun meaning");
@@ -54,7 +59,9 @@ public final class NativeSmokeTest extends Instrumentation {
         check(find(main.getWindow().getDecorView(),"提醒设置")==null,"home no longer jumps to reminder settings");
         click(main,"我的");
         check(find(main.getWindow().getDecorView(),"复习计划")!=null&&find(main.getWindow().getDecorView(),"复习与拼写")!=null&&find(main.getWindow().getDecorView(),"AI")!=null,"settings are grouped into category entries including AI");
-        click(main,"AI");check(find(main.getWindow().getDecorView(),"启用 AI 功能")!=null&&find(main.getWindow().getDecorView(),"测试连接")!=null,"AI settings expose enable switch and connection test");click(main,"返回设置目录");
+        click(main,"AI");check(find(main.getWindow().getDecorView(),"启用 AI 功能")!=null&&find(main.getWindow().getDecorView(),"测试连接")!=null&&find(main.getWindow().getDecorView(),"当前模型")!=null&&find(main.getWindow().getDecorView(),"添加配置")!=null,"AI settings expose the current model, enable switch, connection test and add action");
+        click(main,"添加配置");check(findClickableInWindows("测试并保存",true)!=null&&findClickableInWindows("获取模型",true)!=null,"add-config sheet tests the connection and can fetch models");click(main,"取消");
+        click(main,"返回设置目录");
         click(main,"复习计划");check(find(main.getWindow().getDecorView(),"默认复习间隔")!=null,"interval controls open from their category");
         Switch optionalFirst=(Switch)find(main.getWindow().getDecorView(),"启用第 8 轮");runOnMainSync(()->optionalFirst.setChecked(true));
         click(main,"返回设置目录");check(Store.prefs(getTargetContext()).getBoolean("optional",false),"leaving a settings category automatically saves changes");
@@ -88,7 +95,17 @@ public final class NativeSmokeTest extends Instrumentation {
         Activity editor=open(WordEditorActivity.class,0);check(find(editor.getWindow().getDecorView(),"更多操作")!=null,"word editor tucks secondary actions behind 更多操作");screenshot(editor,"editor-360",360,860);runOnMainSync(()->{try{Field f=WordEditorActivity.class.getDeclaredField("chinese");f.setAccessible(true);((EditText)f.get(editor)).setText("n. 野心；雄心；抱负（已校对）");}catch(Exception e){throw new RuntimeException(e);}});click(editor,"下一张");check(Words.draft(getTargetContext()).getJSONArray("words").getJSONObject(0).getString("chinese").contains("已校对"),"editing card persists on next");call(editor,"commit");waitForIdleSync();
         JSONArray all=Store.tasks(getTargetContext());check(all.length()==1,"word group becomes a task");JSONObject task=all.getJSONObject(0);check(task.getJSONArray("intervals").length()==9,"custom intervals appended to task snapshot");check(task.getString("windows").equals("07:30-08:30,22:00-01:00"),"word task snapshots enabled time windows");check(!new File(getTargetContext().getFilesDir(),"word-draft.json").exists(),"committed draft cleared");
         long id=task.getLong("id");Activity review=open(ReviewActivity.class,id);screenshot(review,"review-front-360",360,760);check(find(review.getWindow().getDecorView(),"记得")==null,"feedback hidden before reveal");click(review,"显示答案");screenshot(review,"review-answer-360",360,760);check(find(review.getWindow().getDecorView(),"忘记了")!=null,"forgotten answer action is clearly labeled");click(review,"忘记了");check(Store.find(Store.tasks(getTargetContext()),id).getInt("stage")==0,"card answer does not advance stage");
-        JSONObject wrongWord=Store.find(Store.tasks(getTargetContext()),id).getJSONArray("words").getJSONObject(0);check(wrongWord.optInt("wrongCount")==1&&wrongWord.optJSONArray("wrongRounds").optInt(0)==1,"review misses record count and review round");int beforeDuplicate=wrongWord.optInt("wrongCount");JSONArray sessionWords=Store.find(Store.tasks(getTargetContext()),id).getJSONArray("words");WrongBook.record(getTargetContext(),id,0,1,sessionWords,"qa-idempotent-event");WrongBook.record(getTargetContext(),id,0,1,sessionWords,"qa-idempotent-event");wrongWord=Store.find(Store.tasks(getTargetContext()),id).getJSONArray("words").getJSONObject(0);check(wrongWord.optInt("wrongCount")==beforeDuplicate+1,"wrong-book event IDs prevent duplicate mistake counts");check(wrongWord.optJSONArray("wrongRounds").length()==1,"wrong rounds are unique even with repeated mistakes in one round");
+        JSONObject wrongWord=Store.find(Store.tasks(getTargetContext()),id).getJSONArray("words").getJSONObject(0);check(wrongWord.optInt("wrongCount")==1&&wrongWord.optJSONArray("wrongRounds").optInt(0)==1,"review misses record count and review round");int beforeDuplicate=wrongWord.optInt("wrongCount");JSONArray sessionWords=Store.find(Store.tasks(getTargetContext()),id).getJSONArray("words");WrongBook.record(getTargetContext(),id,0,1,sessionWords,"qa-idempotent-event");WrongBook.record(getTargetContext(),id,0,1,sessionWords,"qa-idempotent-event");wrongWord=Store.find(Store.tasks(getTargetContext()),id).getJSONArray("words").getJSONObject(0);check(wrongWord.optInt("wrongCount")==beforeDuplicate+1,"wrong-book event IDs prevent duplicate mistake counts");        check(wrongWord.optJSONArray("wrongRounds").length()==1,"wrong rounds are unique even with repeated mistakes in one round");
+        View cardTap=(View)field(review,"cardView");String counterBefore=((TextView)field(review,"counter")).getText().toString();
+        runOnMainSync(()->cardTap.performClick());waitForIdleSync();
+        check(find(review.getWindow().getDecorView(),"忘记了")!=null&&((TextView)field(review,"counter")).getText().toString().equals(counterBefore),"first tap on the card reveals and does not advance");
+        runOnMainSync(()->{try{((View)field(review,"cardView")).performClick();}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(400);waitForIdleSync();
+        check(!((TextView)field(review,"counter")).getText().toString().equals(counterBefore),"second tap on the revealed card advances like 记得");
+        final View[] held={null};runOnMainSync(()->{try{held[0]=(View)field(review,"cardView");}catch(Exception e){throw new RuntimeException(e);}long t=android.os.SystemClock.uptimeMillis();float x=held[0].getWidth()/2f,y=Math.max(1,held[0].getHeight()/3f);held[0].dispatchTouchEvent(android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_DOWN,x,y,0));});
+        Thread.sleep(android.view.ViewConfiguration.getLongPressTimeout()+120);waitForIdleSync();
+        check(findTextInWindows("编辑单词卡")!=null,"long-press on the card opens the word editor");
+        runOnMainSync(()->{long t=android.os.SystemClock.uptimeMillis();held[0].dispatchTouchEvent(android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_CANCEL,0,0,0));});
+        click(review,"取消");
         int guard=0;while(find(review.getWindow().getDecorView(),"本轮已看完")==null&&guard++<60){click(review,"显示答案");click(review,"记得");}
         check(guard<60,"review queue terminates after retry");screenshot(review,"review-summary-360",360,760);
         check(find(review.getWindow().getDecorView(),"更多选项")!=null,"summary keeps secondary actions behind 更多选项");
@@ -160,7 +177,43 @@ public final class NativeSmokeTest extends Instrumentation {
             check(err[0]==null,"MiMo live ping succeeds");
             line("PASS MiMo live ping");
         }
-        AiSecrets.clear(ctx);Store.prefs(ctx).edit().putBoolean("aiEnabled",false).commit();
+        AiSettings.reset(ctx);
+    }
+    private void testAiConfigs()throws Exception{
+        android.content.Context ctx=getTargetContext();
+        AiSettings.reset(ctx);
+        check(AiSettings.normalizeBase("https://api.openai.com/v1/chat/completions/").equals("https://api.openai.com/v1"),"base URL drops chat/completions and a trailing slash");
+        check(AiSettings.normalizeBase("https://api.deepseek.com/v1/models").equals("https://api.deepseek.com/v1"),"base URL drops a trailing /models");
+        java.util.List<String> deepseek=AiSettings.modelUrls("https://api.deepseek.com");
+        check(deepseek.get(0).equals("https://api.deepseek.com/models")&&deepseek.get(1).equals("https://api.deepseek.com/v1/models"),"unversioned base tries /models then /v1/models");
+        check(AiSettings.modelUrls("https://api.xiaomimimo.com/v1/").get(0).equals("https://api.xiaomimimo.com/v1/models"),"base that already has /v1 lists models beside it");
+        check(AiSettings.modelUrls("https://openrouter.ai/api/v1").get(0).equals("https://openrouter.ai/api/v1/models"),"OpenRouter-style /v1 base lists /v1/models");
+        java.util.List<String> ids=AiClient.parseModelIds("{\"data\":[{\"id\":\"b\"},{\"id\":\"a\"},{\"id\":\"b\"}]}");
+        check(ids.size()==2&&ids.get(0).equals("a")&&ids.get(1).equals("b"),"model ids are de-duplicated and sorted");
+        String secret="sk-test-secret-key-value";
+        String explained=AiClient.explainHttp(401,"{\"error\":{\"message\":\"invalid "+secret+"\"}}",secret);
+        check(explained.startsWith("密钥被拒绝")&&!explained.contains(secret),"auth errors stay short and hide the key");
+        check(AiSettings.validateBase("not a url")!=null&&AiSettings.configs(ctx).length()==0,"a bad address is rejected and does not create a config");
+        AiSecrets.writeApiKey(ctx,secret);
+        Store.prefs(ctx).edit().remove("aiConfigs").putInt("aiProvider",AiSettings.PROVIDER_DEEPSEEK).putString("aiBaseUrl",AiSettings.DEEPSEEK_URL).putString("aiModel","deepseek-chat").commit();
+        check(AiSettings.configs(ctx).length()==1&&"deepseek-chat".equals(AiSettings.model(ctx)),"legacy key migrates into one config and keeps its model");
+        check(AiSecrets.readLegacyApiKey(ctx).isEmpty(),"legacy key slot is cleared after migration");
+        String masked=AiSecrets.mask(AiSettings.apiKey(ctx));
+        check(!masked.equals(AiSettings.apiKey(ctx))&&!masked.contains(secret),"saved key is masked for display");
+        AiSettings.reset(ctx);
+        check(AiSettings.save(ctx,false,AiSettings.PROVIDER_DEEPSEEK,AiSettings.DEEPSEEK_URL,AiSettings.DEEPSEEK_MODEL,secret),"first config saves");
+        check(AiSettings.save(ctx,false,AiSettings.PROVIDER_CUSTOM,"https://example.com/v1","custom-model","sk-custom-12345678"),"second config saves and becomes active");
+        check(AiSettings.configs(ctx).length()==2,"both configs are kept");
+        check("custom-model".equals(AiSettings.model(ctx))&&AiSettings.chatUrl(ctx).equals("https://example.com/v1/chat/completions"),"active config supplies the model and chat URL");
+        String deepseekId=null;
+        org.json.JSONArray configs=AiSettings.configs(ctx);
+        for(int i=0;i<configs.length();i++)if(configs.getJSONObject(i).optInt("provider")==AiSettings.PROVIDER_DEEPSEEK)deepseekId=configs.getJSONObject(i).getString("id");
+        check(deepseekId!=null&&AiSettings.setActive(ctx,deepseekId)&&AiSettings.DEEPSEEK_MODEL.equals(AiSettings.model(ctx)),"active config can be switched and its model is used");
+        check(!AiSettings.ready(ctx),"AI stays off until the switch is enabled");
+        check(AiSettings.setEnabled(ctx,true)&&AiSettings.ready(ctx),"enabled active config is ready");
+        check(AiSettings.delete(ctx,deepseekId)&&AiSettings.configs(ctx).length()==1,"deleting one config leaves the other");
+        AiSettings.reset(ctx);
+        check(!AiSettings.ready(ctx)&&AiSettings.configs(ctx).length()==0,"reset removes configs and disables AI");
     }
     private void testCalendarAndFeedback(long id)throws Exception{
         Store.prefs(getTargetContext()).edit().putBoolean("motion",false).putInt("reviewMode",1).putBoolean("autoSpeak",true).commit();
@@ -182,7 +235,23 @@ public final class NativeSmokeTest extends Instrumentation {
         prefs.edit().putBoolean("haptic",true).putBoolean("feedbackSound",false).commit();Feedback feedback=new Feedback();HapticProbe probe=new HapticProbe(getTargetContext());
         feedback.respond(probe,Feedback.RETRY);check(probe.effect==android.view.HapticFeedbackConstants.LONG_PRESS,"forgotten answer uses a distinct haptic");
         probe.effect=-1;feedback.reveal(probe);check(probe.effect==android.view.HapticFeedbackConstants.CLOCK_TICK,"revealing the answer has immediate haptic feedback");
+        probe.effect=-1;Motion.press(probe);long time=android.os.SystemClock.uptimeMillis();
+        android.view.MotionEvent down=android.view.MotionEvent.obtain(time,time,android.view.MotionEvent.ACTION_DOWN,0,0,0);
+        probe.dispatchTouchEvent(down);down.recycle();
+        check(probe.effect==android.view.HapticFeedbackConstants.CLOCK_TICK,"shared press vibrates on finger down");
+        probe.effect=-1;feedback.respond(probe,Feedback.RETRY);feedback.reveal(probe);Feedback.tick(probe);
+        check(probe.effect==-1,"click, reveal, and answer do not vibrate again after finger down");
+        android.view.MotionEvent up=android.view.MotionEvent.obtain(time,time+20,android.view.MotionEvent.ACTION_UP,0,0,0);
+        probe.dispatchTouchEvent(up);up.recycle();
+        probe.effect=-1;feedback.respond(probe,Feedback.RETRY);check(probe.effect==android.view.HapticFeedbackConstants.LONG_PRESS,"a later answer still uses the forgotten haptic");
         prefs.edit().putBoolean("haptic",false).commit();probe.effect=-1;feedback.respond(probe,Feedback.RETRY);check(probe.effect==-1,"haptic preference suppresses vibration");
+        android.view.MotionEvent downOff=android.view.MotionEvent.obtain(time,time+40,android.view.MotionEvent.ACTION_DOWN,0,0,0);
+        probe.dispatchTouchEvent(downOff);downOff.recycle();
+        check(probe.effect==-1,"haptic preference suppresses the finger-down vibration");
+        probe.effect=-1;Feedback.pressToggle(probe,true);check(probe.effect==-1,"turning the haptic switch off does not vibrate");
+        Feedback.pressToggle(probe,false);check(probe.effect==android.view.HapticFeedbackConstants.CLOCK_TICK,"turning the haptic switch on vibrates before the preference is saved");
+        android.view.MotionEvent upOff=android.view.MotionEvent.obtain(time,time+50,android.view.MotionEvent.ACTION_UP,0,0,0);
+        probe.dispatchTouchEvent(upOff);upOff.recycle();
         prefs.edit().putBoolean("haptic",oldHaptic).putBoolean("feedbackSound",oldSound).commit();
     }
     private static final class HapticProbe extends View{

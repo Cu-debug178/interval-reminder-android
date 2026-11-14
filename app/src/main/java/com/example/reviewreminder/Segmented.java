@@ -2,6 +2,7 @@ package com.example.reviewreminder;
 
 import android.content.Context;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -34,7 +35,13 @@ final class Segmented extends FrameLayout {
         for(int i=0;i<options.length;i++){
             final int index=i;TextView t=new TextView(c);t.setText(options[i]);t.setGravity(Gravity.CENTER);t.setTextSize(Theme.CALLOUT_SIZE);t.setMaxLines(1);
             t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setPadding(Theme.dp(c,6),0,Theme.dp(c,6),0);
-            t.setClickable(true);t.setFocusable(true);t.setOnClickListener(v->{if(index!=selected){setSelected(index,true);Feedback.tick(v);if(onPick!=null)onPick.pick(index);}});
+            t.setClickable(true);t.setFocusable(true);t.setOnTouchListener((view,event)->{
+                int action=event.getActionMasked();
+                if(action==MotionEvent.ACTION_DOWN){if(index!=selected)Feedback.press(view);}
+                else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)Feedback.releasePress(view);
+                return false;
+            });
+            t.setOnClickListener(v->{if(index!=selected){setSelected(index,true);Feedback.tick(v);if(onPick!=null)onPick.pick(index);}});
             items[i]=t;labels.addView(t,new LinearLayout.LayoutParams(0,-1,1));
         }
         paint();

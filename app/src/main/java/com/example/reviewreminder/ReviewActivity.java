@@ -8,6 +8,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -17,7 +18,9 @@ import android.text.Spanned;
 import android.text.style.AbsoluteSizeSpan;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,8 +35,10 @@ import java.util.Locale;
  * The flashcard session — the heart of the app.
  *
  * Anatomy: modal top bar (✕ · title · ⋯), a thin progress line with a quiet counter, one large
- * white card that fills the stage (tap anywhere to reveal), and the answer actions pinned at the
- * bottom. The card leaves in the direction of the answer and the next one arrives from behind it.
+ * white card that fills the stage (first tap reveals, second tap continues as “记得”), and the
+ * answer actions pinned at the bottom. Long-press opens the word editor. The speak control keeps
+ * its own larger hit area and never flips or advances the card. The card leaves in the direction
+ * of the answer and the next one arrives from behind it.
  * The summary is a calm completion moment with the round's numbers and the next step.
  *
  * Scheduling, mastery and wrong-book writes are unchanged from the previous design.
@@ -351,6 +356,8 @@ public final class ReviewActivity extends ScreenActivity {
         card.addView(content,new LinearLayout.LayoutParams(-1,0,1));
 
         pronounce=ui.quietPill("朗读单词",R.drawable.ic_volume_2,v->speak(word.optString("english"),false));
+        // A long-press on the speaker must not fall through into edit, reveal, or a second speak.
+        pronounce.setOnLongClickListener(v->true);
         pronounce.setVisibility(!zh||revealed?View.VISIBLE:View.INVISIBLE);
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-2,-2);
         pp.gravity=Gravity.CENTER_HORIZONTAL;
@@ -361,16 +368,104 @@ public final class ReviewActivity extends ScreenActivity {
         back.setVisibility(answerState);
         sentence.setVisibility(currentExample.isEmpty()?View.GONE:answerState);
         masteryRow.setVisibility(answerState);
-
-        if(!revealed){
-            // The whole card is the reveal target; a soft squeeze confirms the touch.
-            card.setClickable(true);
-            card.setFocusable(true);
-            card.setOnClickListener(this::revealAnswer);
-            Theme.applyRipple(card,card.getBackground(),Theme.RIPPLE_LIGHT);
-            Motion.press(card,.99f);
-        }
+        bindCard(card,pronounce);
         return card;
+    }
+
+    /**
+     * Card gestures. A tap reveals, and the next tap does what “记得” does. A long-press opens the
+     * editor and cancels that tap. The speak pill is unchanged in size; touches in a wider margin
+     * around it are forwarded to the pill so a finger can hit it without flipping the card.
+     */
+    private void bindCard(View card,Button speak){
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setLongClickable(false);
+        Theme.applyRipple(card,card.getBackground(),Theme.RIPPLE_LIGHT);
+        final int slop=ViewConfiguration.get(this).getScaledTouchSlop();
+        final int timeout=ViewConfiguration.getLongPressTimeout();
+        final int extra=ui.dp(16);
+        final float[] down=new float[2];
+        final boolean[] speaking={false},held={false},swallow={false};
+        final Runnable longPress=()->{
+            held[0]=true;
+            card.setPressed(false);
+            card.animate().cancel();
+            card.setScaleX(1);
+            card.setScaleY(1);
+            if(changing||currentWord==null||!card.isAttachedToWindow())return;
+            if(Store.prefs(this).getBoolean("haptic",true))card.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            edit(currentWord);
+        };
+        card.setOnTouchListener((view,event)->{
+            int action=event.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN){
+                speaking[0]=speakHit(card,speak,event,extra);
+                held[0]=false;
+                swallow[0]=false;
+                down[0]=event.getX();
+                down[1]=event.getY();
+                card.removeCallbacks(longPress);
+                if(speaking[0]){forwardSpeak(speak,event,true);return true;}
+                if(!changing)Feedback.press(view);
+                if(view.isEnabled()&&Motion.enabled(view.getContext()))
+                    view.animate().scaleX(.99f).scaleY(.99f).setStartDelay(0).setDuration(90).setInterpolator(Motion.EASE).start();
+                card.postDelayed(longPress,timeout);
+                return false;
+            }
+            if(speaking[0]){
+                boolean inside=speakHit(card,speak,event,extra);
+                if(!inside){forwardSpeak(speak,event,false);speaking[0]=false;swallow[0]=true;return true;}
+                forwardSpeak(speak,event,true);
+                if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)speaking[0]=false;
+                return true;
+            }
+            if(swallow[0]){
+                if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)swallow[0]=false;
+                return true;
+            }
+            if(action==MotionEvent.ACTION_MOVE){
+                if(Math.hypot(event.getX()-down[0],event.getY()-down[1])>slop)card.removeCallbacks(longPress);
+                return false;
+            }
+            if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+                card.removeCallbacks(longPress);
+                Feedback.releasePress(view);
+                if(Motion.enabled(view.getContext()))
+                    view.animate().scaleX(1).scaleY(1).setStartDelay(0).setDuration(Theme.PRESS_MS+60).setInterpolator(Motion.EASE_OUT).start();
+                else{view.setScaleX(1);view.setScaleY(1);}
+                if(held[0])view.setPressed(false);
+                return held[0];
+            }
+            return false;
+        });
+        card.setOnClickListener(v->{
+            if(changing||currentWord==null)return;
+            if(!revealed)revealAnswer(v);
+            else answer(true,session.answered(),v);
+        });
+    }
+
+    /** Expanded finger target around the speak pill. The pill's own layout is left alone. */
+    private boolean speakHit(View card,Button speak,MotionEvent event,int extra){
+        if(speak==null||speak.getVisibility()!=View.VISIBLE||speak.getWidth()==0)return false;
+        Rect rect=new Rect();
+        speak.getHitRect(rect);
+        rect.inset(-extra,-extra);
+        if(rect.left<0)rect.left=0;
+        if(rect.top<0)rect.top=0;
+        if(rect.right>card.getWidth())rect.right=card.getWidth();
+        if(rect.bottom>card.getHeight())rect.bottom=card.getHeight();
+        return rect.contains((int)event.getX(),(int)event.getY());
+    }
+
+    /** Sends the gesture to the center of the pill when the finger is inside the expanded target. */
+    private void forwardSpeak(Button speak,MotionEvent event,boolean inside){
+        MotionEvent copy=MotionEvent.obtain(event);
+        if(inside)copy.setLocation(speak.getWidth()/2f,speak.getHeight()/2f);
+        else{copy.setAction(MotionEvent.ACTION_CANCEL);copy.setLocation(speak.getWidth()/2f,speak.getHeight()/2f);}
+        speak.dispatchTouchEvent(copy);
+        copy.recycle();
     }
 
     /** Long headwords step down so they keep to one or two calm lines. */
@@ -406,11 +501,6 @@ public final class ReviewActivity extends ScreenActivity {
             pronounce.setVisibility(View.VISIBLE);
             Motion.enter(pronounce,0,delay);
         }
-
-        // Once revealed, the card is no longer a button.
-        cardView.setOnTouchListener(null);
-        cardView.setOnClickListener(null);
-        cardView.setClickable(false);
         cardView.setScaleX(1);
         cardView.setScaleY(1);
 

@@ -203,6 +203,7 @@ final class WordUi {
         s.setSwitchPadding(dp(Theme.SPACE_16));s.setChecked(checked);
         Theme.applyRipple(s,null,Theme.RIPPLE_LIGHT);
         s.setOnCheckedChangeListener((b,on)->Feedback.tick(b));
+        s.setOnTouchListener(Feedback::touch);
         group.addView(s,lp());return s;
     }
 

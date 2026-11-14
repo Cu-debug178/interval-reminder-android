@@ -8,12 +8,13 @@ import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import java.nio.ByteBuffer;
 import java.security.KeyStore;
+import java.util.Map;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Encrypts AI API keys with Android Keystore. Never log plaintext keys. */
+/** Encrypts AI API keys with Android Keystore. Never log or display a full key after it is saved. */
 final class AiSecrets {
     private static final String PREF="ai_secrets";
     private static final String KEY_ALIAS="interval_reminder_ai_key";
@@ -22,39 +23,69 @@ final class AiSecrets {
 
     private AiSecrets() {}
 
-    static String readApiKey(Context c){
-        SharedPreferences secrets=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);
+    /** Legacy single-slot key, used only to migrate installs from before named configs. */
+    static String readLegacyApiKey(Context c){
+        SharedPreferences secrets=secrets(c);
         String enc=secrets.getString(ENC_KEY,"").trim();
         if(!enc.isEmpty()){
             try{return decrypt(enc);}catch(Exception ignored){return "";}
         }
         String legacy=Store.prefs(c).getString(PLAIN_LEGACY,"").trim();
         if(!legacy.isEmpty()){
-            try{writeApiKey(c,legacy);Store.prefs(c).edit().remove(PLAIN_LEGACY).apply();}catch(Exception ignored){}
+            try{writeApiKey(c,null,legacy);Store.prefs(c).edit().remove(PLAIN_LEGACY).apply();}catch(Exception ignored){}
             return legacy;
         }
         return "";
     }
 
-    static void writeApiKey(Context c,String key)throws Exception{
-        SharedPreferences.Editor edit=c.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit();
+    static String readApiKey(Context c,String configId){
+        if(configId==null||configId.isEmpty())return readLegacyApiKey(c);
+        String enc=secrets(c).getString(slot(configId),"").trim();
+        if(enc.isEmpty())return "";
+        try{return decrypt(enc);}catch(Exception ignored){return "";}
+    }
+
+    static void writeApiKey(Context c,String key)throws Exception{writeApiKey(c,null,key);}
+
+    static void writeApiKey(Context c,String configId,String key)throws Exception{
+        SharedPreferences.Editor edit=secrets(c).edit();
         String value=key==null?"":key.trim();
-        if(value.isEmpty())edit.remove(ENC_KEY);
-        else edit.putString(ENC_KEY,encrypt(value));
+        String name=configId==null||configId.isEmpty()?ENC_KEY:slot(configId);
+        if(value.isEmpty())edit.remove(name);
+        else edit.putString(name,encrypt(value));
         if(!edit.commit())throw new IllegalStateException("无法安全保存 API Key");
         Store.prefs(c).edit().remove(PLAIN_LEGACY).apply();
     }
 
-    static void clear(Context c){
-        c.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().remove(ENC_KEY).apply();
+    static void deleteApiKey(Context c,String configId){
+        if(configId==null||configId.isEmpty()){deleteLegacy(c);return;}
+        secrets(c).edit().remove(slot(configId)).commit();
+    }
+
+    static void deleteLegacy(Context c){
+        secrets(c).edit().remove(ENC_KEY).commit();
         Store.prefs(c).edit().remove(PLAIN_LEGACY).apply();
     }
 
+    static void clear(Context c){
+        SharedPreferences secrets=secrets(c);
+        SharedPreferences.Editor edit=secrets.edit();
+        for(Map.Entry<String,?> entry:secrets.getAll().entrySet()){
+            if(entry.getKey()!=null&&entry.getKey().startsWith(ENC_KEY))edit.remove(entry.getKey());
+        }
+        edit.commit();
+        Store.prefs(c).edit().remove(PLAIN_LEGACY).apply();
+    }
+
+    /** Short hint for a saved key. Never returns the full secret. */
     static String mask(String key){
         if(key==null||key.isEmpty())return "";
         if(key.length()<=8)return "••••";
         return key.substring(0,4)+"…"+key.substring(key.length()-4);
     }
+
+    private static SharedPreferences secrets(Context c){return c.getSharedPreferences(PREF,Context.MODE_PRIVATE);}
+    private static String slot(String configId){return ENC_KEY+"."+configId.replaceAll("[^A-Za-z0-9_\\-]","");}
 
     private static SecretKey secret()throws Exception{
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");
