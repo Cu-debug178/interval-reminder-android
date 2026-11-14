@@ -56,12 +56,17 @@ final class Feedback {
         pressHold++;
         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }
-    /** Clears the finger-down hold after this gesture's click listeners have run. */
+    /**
+     * Drops the finger-down hold only after this gesture's click listeners. The touch listener
+     * runs before the view posts its click, so a clear posted here would run first and the
+     * click would vibrate a second time.
+     */
     static void releasePress(View view){
         if(view==null)return;
         int token=pressHold;
         Runnable clear=()->{if(pressHold==token)pressHold=0;};
-        if(view.isAttachedToWindow())view.post(clear);else clear.run();
+        if(!view.isAttachedToWindow()){clear.run();return;}
+        view.post(()->view.post(clear));
     }
     /** Touch listener for controls that already vibrate but do not use the press squeeze. */
     static boolean touch(View view,MotionEvent event){
