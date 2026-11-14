@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.example.reviewreminder'
     compileSdk 35
-    defaultConfig { applicationId 'com.example.reviewreminder'; minSdk 23; targetSdk 28; versionCode 9; versionName '0.6.0' }
+    defaultConfig { applicationId 'com.example.reviewreminder'; minSdk 23; targetSdk 28; versionCode 15; versionName '0.7.5' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
 }
 dependencies { }

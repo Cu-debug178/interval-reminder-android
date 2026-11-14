@@ -25,3 +25,4 @@
 .ai-keys*
 /secrets/
 **/ai-keys.local.env
+.claude/

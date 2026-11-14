@@ -1,68 +1,507 @@
 package com.example.reviewreminder;
 
-import android.graphics.Color;
+import android.animation.ObjectAnimator;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Paint;
 import android.os.Bundle;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.TextWatcher;
+import android.text.style.AbsoluteSizeSpan;
+import android.text.style.TypefaceSpan;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
+/**
+ * Spelling drill that follows a review round (or a single word from the wrong book).
+ *
+ * One focused question per screen: the Chinese meaning sits on a white card, the answer is
+ * typed into a large serif field beneath it, and the single primary action is pinned to the
+ * bottom. Checking tints the field (pine for right, terracotta for wrong) and reveals the
+ * correct spelling in place, so the eye never has to leave the word.
+ */
 public final class SpellingActivity extends ScreenActivity {
     private WordUi ui;
+    private final Feedback interaction = new Feedback();
     private long taskId;
     private int round;
     private long historyAt;
     private String attemptId;
     private JSONArray words;
-    private int[] indices,exampleIndices;
-    private int position,correct,wrong;
-    private boolean answered,answerWasCorrect;
+    private int[] indices, exampleIndices;
+    private int position, correct, wrong;
+    private boolean answered, answerWasCorrect;
     private EditText answerInput;
-    private String draft="";
+    private String draft = "";
 
-    @Override public void onCreate(Bundle state){
-        super.onCreate(state);ui=new WordUi(this);taskId=getIntent().getLongExtra("taskId",0);round=getIntent().getIntExtra("round",-1);historyAt=getIntent().getLongExtra("historyAt",0);exampleIndices=getIntent().getIntArrayExtra("exampleIndices");if(exampleIndices==null)exampleIndices=new int[0];attemptId=getIntent().getStringExtra("attemptId");if(attemptId==null||attemptId.isEmpty()){attemptId=UUID.randomUUID().toString();getIntent().putExtra("attemptId",attemptId);}
-        try{JSONObject task=Store.find(Store.tasks(this),taskId);if(task==null)throw new Exception("复习任务已不存在");words=task.getJSONArray("words");indices=SpellingPlan.indices(SpellingPlan.WRONG_ONLY,words.length(),getIntent().getIntArrayExtra("indices"));if(state!=null){position=Math.max(0,Math.min(indices.length,state.getInt("position")));correct=Math.max(0,state.getInt("correct"));wrong=Math.max(0,state.getInt("wrong"));answered=state.getBoolean("answered");answerWasCorrect=state.getBoolean("answerWasCorrect");draft=state.getString("draft","");}show();}
-        catch(Exception e){ui.toast(e.getMessage());finish();}
+    // Persistent chrome: counter + progress stay put while the question beneath them changes.
+    private LinearLayout head;
+    private TextView counter, tally;
+    private ProgressLine progress;
+    private LinearLayout stage;
+    // Per-question views updated in place when the answer is checked.
+    private TextView exampleView, hint;
+    private LinearLayout verdict;
+
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
+        ui = new WordUi(this);
+        interaction.prepare(this);
+        taskId = getIntent().getLongExtra("taskId", 0);
+        round = getIntent().getIntExtra("round", -1);
+        historyAt = getIntent().getLongExtra("historyAt", 0);
+        exampleIndices = getIntent().getIntArrayExtra("exampleIndices");
+        if (exampleIndices == null) exampleIndices = new int[0];
+        attemptId = getIntent().getStringExtra("attemptId");
+        if (attemptId == null || attemptId.isEmpty()) {
+            attemptId = UUID.randomUUID().toString();
+            getIntent().putExtra("attemptId", attemptId);
+        }
+        try {
+            JSONObject task = Store.find(Store.tasks(this), taskId);
+            if (task == null) throw new Exception("复习任务已不存在");
+            words = task.getJSONArray("words");
+            indices = SpellingPlan.indices(SpellingPlan.WRONG_ONLY, words.length(), getIntent().getIntArrayExtra("indices"));
+            if (state != null) {
+                position = Math.max(0, Math.min(indices.length, state.getInt("position")));
+                correct = Math.max(0, state.getInt("correct"));
+                wrong = Math.max(0, state.getInt("wrong"));
+                answered = state.getBoolean("answered");
+                answerWasCorrect = state.getBoolean("answerWasCorrect");
+                draft = state.getString("draft", "");
+            }
+            chrome();
+            show(false);
+            // The review round was saved just before this screen opened; confirm it here, in-app.
+            if (state == null && historyAt > 0 && round > 0) ui.body.post(() -> ui.toast("第 " + round + " 轮已记录"));
+        } catch (Exception e) {
+            // Finish first so the notice falls back to a system toast and survives the exit.
+            finish();
+            ui.error(e.getMessage());
+        }
     }
-    @Override protected void onSaveInstanceState(Bundle out){out.putInt("position",position);out.putInt("correct",correct);out.putInt("wrong",wrong);out.putBoolean("answered",answered);out.putBoolean("answerWasCorrect",answerWasCorrect);if(answerInput!=null)out.putString("draft",answerInput.getText().toString());super.onSaveInstanceState(out);}
 
-    private void show(){
-        if(position>=indices.length){summary();return;}int wordIndex=indices[position];JSONObject word=words.optJSONObject(wordIndex);if(word==null){advance();return;}
-        ui.start("拼写练习");ui.body.addView(ui.text((position+1)+" / "+indices.length+" 个",14,WordUi.MUTED));ui.gap(ui.body,20);
-        LinearLayout card=ui.col();card.setGravity(Gravity.CENTER);card.setMinimumHeight(ui.dp(250));card.setPadding(ui.dp(22),ui.dp(28),ui.dp(22),ui.dp(28));card.setBackground(ui.bg(Color.WHITE,20));
-        TextView label=ui.text("根据中文写出英文",13,WordUi.MUTED);label.setGravity(Gravity.CENTER);card.addView(label);ui.gap(card,22);
-        TextView meaning=ui.text(word.optString("chinese",""),27,WordUi.INK);meaning.setGravity(Gravity.CENTER);meaning.setTypeface(null,1);card.addView(meaning);
-        String example=word.optString("example","");if(!example.isEmpty()){ui.gap(card,14);TextView sentence=ui.text(example,15,WordUi.MUTED);sentence.setGravity(Gravity.CENTER);card.addView(sentence);}
-        ui.body.addView(card);ui.gap(ui.body,20);
-        EditText answer=new EditText(this);answerInput=answer;answer.setSingleLine(true);answer.setTextSize(20);answer.setHint("输入英文单词");answer.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);answer.setPadding(ui.dp(16),ui.dp(12),ui.dp(16),ui.dp(12));answer.setBackground(ui.bg(Color.WHITE,14));answer.setText(draft);answer.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){draft=s.toString();}public void afterTextChanged(android.text.Editable e){}});ui.body.addView(answer,new LinearLayout.LayoutParams(-1,ui.dp(58)));ui.gap(ui.body,12);
-        TextView result=ui.text("",18,WordUi.GREEN);result.setGravity(Gravity.CENTER);ui.body.addView(result);
-        Button submit=ui.button(answered?(position+1<indices.length?"下一个":"查看结果"):"检查拼写",true,null);ui.gap(ui.body,10);ui.body.addView(submit);
-        if(answered){answer.setEnabled(false);result.setText(answerWasCorrect?"正确":"正确拼写："+word.optString("english"));}
-        submit.setOnClickListener(v->{
-            if(answered){advance();return;}String typed=answer.getText().toString().trim();if(typed.isEmpty()){answer.setError("请输入英文单词");return;}
-            String expected=word.optString("english").trim();if(expected.equalsIgnoreCase(typed)){answered=true;answerWasCorrect=true;correct++;result.setText("正确");}
-            else{try{String event=(historyAt>0?"spelling:"+historyAt:"practice:"+attemptId)+":"+position+":"+wordIndex;WrongBook.record(this,taskId,wordIndex,round,words,event);answered=true;answerWasCorrect=false;wrong++;result.setText("正确拼写："+expected);}catch(Exception e){ui.toast("错题记录保存失败："+e.getMessage());return;}}
-            answer.setEnabled(false);
-            submit.setText(position+1<indices.length?"下一个":"查看结果");
+    @Override protected void onSaveInstanceState(Bundle out) {
+        out.putInt("position", position);
+        out.putInt("correct", correct);
+        out.putInt("wrong", wrong);
+        out.putBoolean("answered", answered);
+        out.putBoolean("answerWasCorrect", answerWasCorrect);
+        if (answerInput != null) out.putString("draft", answerInput.getText().toString());
+        super.onSaveInstanceState(out);
+    }
+
+    @Override protected void onDestroy() {
+        interaction.release();
+        super.onDestroy();
+    }
+
+    // ── Page ─────────────────────────────────────────────────────────────────
+
+    private void chrome() {
+        ui.startModal("拼写练习");
+        Notice.setBottomOffset(this, 84);
+
+        // Same header as review and the sense quiz: the line first, then a quiet tabular counter.
+        head = ui.col();
+        progress = new ProgressLine(this);
+        head.addView(progress, WordUi.lp());
+        LinearLayout line = ui.row();
+        line.setMinimumHeight(ui.dp(28));
+        counter = ui.type("", Theme.T_CALLOUT);
+        counter.setTextColor(Theme.INK_2);
+        counter.setFontFeatureSettings("tnum");
+        line.addView(counter, WordUi.weight());
+        tally = ui.type("", Theme.T_CAPTION);
+        tally.setFontFeatureSettings("tnum");
+        line.addView(tally);
+        head.addView(line, ui.lpMargin(Theme.SPACE_12, 0));
+        ui.body.addView(head, WordUi.lp());
+
+        stage = ui.col();
+        ui.body.addView(stage, ui.lpMargin(Theme.SPACE_24, 0));
+    }
+
+    /** Renders the current question; {@code forward} slides it in from the right. */
+    private void show(boolean forward) {
+        if (position >= indices.length) {
+            summary();
+            return;
+        }
+        final int wordIndex = indices[position];
+        final JSONObject word = words.optJSONObject(wordIndex);
+        if (word == null) {
+            advance();
+            return;
+        }
+        String english = word.optString("english").trim();
+        String example = word.optString("example", "");
+
+        head.setVisibility(View.VISIBLE);
+        counter.setText((position + 1) + " / " + indices.length + " 个");
+        updateTally();
+        progress.set(position / (float) Math.max(1, indices.length), forward);
+
+        stage.removeAllViews();
+
+        // Question card: what the word means, never how it is spelled.
+        LinearLayout card = ui.card();
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.setMinimumHeight(ui.dp(196));
+        card.setPadding(ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_32), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_32));
+        TextView overline = ui.type("根据释义拼写单词", Theme.T_OVERLINE);
+        overline.setGravity(Gravity.CENTER);
+        card.addView(overline, WordUi.lp());
+        ui.gap(card, Theme.SPACE_20);
+        TextView meaning = ui.type(word.optString("chinese", ""), Theme.T_TITLE);
+        meaning.setTextSize(22);
+        meaning.setTypeface(Theme.MEDIUM);
+        meaning.setGravity(Gravity.CENTER);
+        meaning.setLineSpacing(0, 1.25f);
+        card.addView(meaning, WordUi.lp());
+        exampleView = null;
+        if (!example.isEmpty()) {
+            ui.gap(card, Theme.SPACE_16);
+            exampleView = ui.type(answered ? example : cloze(example, english), Theme.T_CALLOUT);
+            exampleView.setTypeface(Theme.SERIF_ITALIC);
+            exampleView.setTextSize(15);
+            exampleView.setGravity(Gravity.CENTER);
+            card.addView(exampleView, WordUi.lp());
+        }
+        stage.addView(card, WordUi.lp());
+
+        // Answer field: large, centred, serif — the word is written like it would be printed.
+        EditText answer = WordUi.input(this, "输入英文单词", draft);
+        answerInput = answer;
+        answer.setSingleLine(true);
+        answer.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        answer.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        answer.setTypeface(Theme.SERIF);
+        answer.setTextSize(24);
+        // Serif is for the typed word; the Chinese prompt stays in the UI sans at body size.
+        answer.setHint(sansHint("输入英文单词", 16));
+        answer.setGravity(Gravity.CENTER);
+        answer.setPadding(ui.dp(Theme.SPACE_16), 0, ui.dp(Theme.SPACE_16), 0);
+        answer.setSelection(answer.getText().length());
+        answer.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                draft = s.toString();
+                if (hint != null && hint.getVisibility() == View.VISIBLE && s.length() > 0) hint.setVisibility(View.GONE);
+            }
+            public void afterTextChanged(Editable e) {}
         });
-        ui.body.addView(ui.button("跳过此词",false,v->{if(!answered)advance();}));
-        answer.setOnEditorActionListener((v,action,event)->{submit.performClick();return true;});Motion.enter(card);
+        answer.setOnEditorActionListener((v, action, event) -> {
+            if (answered) next(v);
+            else check(word, wordIndex, v);
+            return true;
+        });
+        LinearLayout.LayoutParams answerLp = ui.lpMargin(Theme.SPACE_16, 0);
+        answerLp.height = ui.dp(64);
+        stage.addView(answer, answerLp);
+
+        hint = ui.type("", Theme.T_CAPTION);
+        hint.setTextColor(Theme.DANGER);
+        hint.setGravity(Gravity.CENTER);
+        hint.setVisibility(View.GONE);
+        stage.addView(hint, ui.lpMargin(Theme.SPACE_8, 0));
+
+        verdict = ui.col();
+        verdict.setGravity(Gravity.CENTER_HORIZONTAL);
+        verdict.setVisibility(View.GONE);
+        stage.addView(verdict, ui.lpMargin(Theme.SPACE_20, 0));
+
+        if (answered) {
+            applyResult(word, false);
+        } else {
+            Button skip = ui.secondaryButton("跳过此词", v -> {
+                if (!answered) advance();
+            });
+            Button submit = ui.primaryButton("检查拼写", v -> check(word, wordIndex, v));
+            ui.pinPair(skip, submit);
+            showKeyboard(answer);
+        }
+        Motion.enter(stage, forward ? 1 : 0);
     }
-    private void advance(){position++;answered=false;answerWasCorrect=false;draft="";show();}
-    private void summary(){saveResult();ui.start("拼写完成");ui.body.addView(ui.text("共 "+indices.length+" 个单词，正确 "+correct+" 个，拼写错误 "+wrong+" 个",18,WordUi.INK));ui.gap(ui.body,18);ui.body.addView(ui.button(exampleIndices.length>0?"继续补充例句":"返回主页",true,v->continueAfterSpelling()));}
-    private void continueAfterSpelling(){
-        int[] missing=ExampleActivity.missingExampleIndices(words,exampleIndices);
-        if(missing.length>0)Motion.open(this,new android.content.Intent(this,ExampleActivity.class).putExtra("taskId",taskId).putExtra("indices",missing));
-        finish();
+
+    private void check(JSONObject word, int wordIndex, View source) {
+        if (answered) {
+            next(source);
+            return;
+        }
+        String typed = answerInput.getText().toString().trim();
+        if (typed.isEmpty()) {
+            showHint("请输入英文单词");
+            return;
+        }
+        String expected = word.optString("english").trim();
+        if (expected.equalsIgnoreCase(typed)) {
+            answered = true;
+            answerWasCorrect = true;
+            correct++;
+            interaction.respond(source, Feedback.KNOWN);
+        } else {
+            try {
+                String event = (historyAt > 0 ? "spelling:" + historyAt : "practice:" + attemptId) + ":" + position + ":" + wordIndex;
+                WrongBook.record(this, taskId, wordIndex, round, words, event);
+                answered = true;
+                answerWasCorrect = false;
+                wrong++;
+            } catch (Exception e) {
+                ui.error("错题记录保存失败：" + e.getMessage());
+                return;
+            }
+            interaction.respond(source, Feedback.RETRY);
+        }
+        applyResult(word, true);
     }
-    private void saveResult(){if(historyAt<=0)return;try{JSONArray tasks=Store.tasks(this);JSONObject task=Store.find(tasks,taskId);if(task==null)return;JSONArray history=task.optJSONArray("history");if(history==null)return;for(int i=history.length()-1;i>=0;i--){JSONObject entry=history.optJSONObject(i);if(entry!=null&&entry.optLong("at")==historyAt&&entry.optInt("stage")==round){entry.put("spellingTotal",indices.length).put("spellingCorrect",correct).put("spellingWrong",wrong).put("spellingSkipped",Math.max(0,indices.length-correct-wrong));Store.save(this,tasks);return;}}}catch(Exception e){Toast.makeText(this,"拼写成绩暂未写入："+e.getMessage(),Toast.LENGTH_LONG).show();}}
-    @Override public void onBackPressed(){finish();}
+
+    /** Shows the checked state: tinted field, correct spelling, and the next/result action. */
+    private void applyResult(JSONObject word, boolean animate) {
+        String expected = word.optString("english").trim();
+        if (animate) Motion.layout(stage);
+        hideKeyboard(answerInput);
+        answerInput.clearFocus();
+        answerInput.setEnabled(false);
+        answerInput.setCursorVisible(false);
+        hint.setVisibility(View.GONE);
+
+        int fill = answerWasCorrect ? Theme.PRIMARY_SOFT : Theme.DANGER_SOFT;
+        int ink = answerWasCorrect ? Theme.PRIMARY : Theme.DANGER;
+        answerInput.setBackground(Theme.shape(this, fill, Theme.RADIUS_FIELD));
+        answerInput.setTextColor(ink);
+        int flags = answerInput.getPaintFlags();
+        answerInput.setPaintFlags(answerWasCorrect ? flags & ~Paint.STRIKE_THRU_TEXT_FLAG : flags | Paint.STRIKE_THRU_TEXT_FLAG);
+        if (exampleView != null) exampleView.setText(word.optString("example", ""));
+
+        verdict.removeAllViews();
+        if (answerWasCorrect) {
+            LinearLayout line = ui.row();
+            line.setGravity(Gravity.CENTER);
+            ImageView mark = ui.icon(R.drawable.ic_circle_check, Theme.PRIMARY);
+            LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(ui.dp(Theme.ICON_SMALL), ui.dp(Theme.ICON_SMALL));
+            mp.rightMargin = ui.dp(Theme.SPACE_8);
+            line.addView(mark, mp);
+            TextView label = ui.type("拼写正确", Theme.T_LABEL);
+            label.setTextColor(Theme.PRIMARY);
+            line.addView(label);
+            verdict.addView(line, WordUi.lp());
+        } else {
+            TextView over = ui.type("正确拼写", Theme.T_OVERLINE);
+            over.setGravity(Gravity.CENTER);
+            verdict.addView(over, WordUi.lp());
+            ui.gap(verdict, Theme.SPACE_8);
+            TextView spelled = ui.type(expected, Theme.T_TITLE);
+            spelled.setTypeface(Theme.SERIF);
+            spelled.setTextSize(28);
+            spelled.setGravity(Gravity.CENTER);
+            spelled.setTextIsSelectable(true);
+            verdict.addView(spelled, WordUi.lp());
+            ui.gap(verdict, Theme.SPACE_8);
+            TextView noted = ui.type("已记入错题本", Theme.T_CAPTION);
+            noted.setGravity(Gravity.CENTER);
+            verdict.addView(noted, WordUi.lp());
+        }
+        verdict.setVisibility(View.VISIBLE);
+        if (animate) Motion.enter(verdict);
+
+        updateTally();
+        progress.set((position + 1) / (float) Math.max(1, indices.length), animate);
+        ui.pin(ui.primaryButton(position + 1 < indices.length ? "下一个" : "查看结果", this::next));
+    }
+
+    private void next(View source) {
+        if (!answered) return;
+        if (position + 1 >= indices.length) interaction.confirm(source);
+        advance();
+    }
+
+    private void advance() {
+        position++;
+        answered = false;
+        answerWasCorrect = false;
+        draft = "";
+        show(true);
+    }
+
+    private void updateTally() {
+        if (correct + wrong == 0) {
+            tally.setText("");
+            return;
+        }
+        tally.setText("正确 " + correct + " · 拼错 " + wrong);
+    }
+
+    private void showHint(String message) {
+        Motion.layout(stage);
+        hint.setText(message);
+        hint.setVisibility(View.VISIBLE);
+        nudge(answerInput);
+        answerInput.requestFocus();
+    }
+
+    // ── Result ───────────────────────────────────────────────────────────────
+
+    private void summary() {
+        saveResult();
+        hideKeyboard(answerInput != null ? answerInput : stage);
+        answerInput = null;
+        head.setVisibility(View.GONE);
+        stage.removeAllViews();
+
+        int total = indices.length;
+        int skipped = Math.max(0, total - correct - wrong);
+
+        TextView title = ui.type("拼写完成", Theme.T_TITLE);
+        stage.addView(title, WordUi.lp());
+        ui.gap(stage, Theme.SPACE_8);
+        TextView line = ui.type("共 " + total + " 个单词，正确 " + correct + " 个，拼写错误 " + wrong + " 个", Theme.T_CALLOUT);
+        stage.addView(line, WordUi.lp());
+        ui.gap(stage, Theme.SPACE_24);
+
+        LinearLayout card = ui.card();
+        card.setPadding(ui.dp(Theme.SPACE_8), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_8), ui.dp(Theme.SPACE_20));
+        LinearLayout stats = ui.row();
+        stats.setGravity(Gravity.TOP);
+        stat(stats, correct, "正确", correct > 0 ? Theme.PRIMARY : Theme.INK);
+        stat(stats, wrong, "拼错", wrong > 0 ? Theme.DANGER : Theme.INK);
+        stat(stats, skipped, "跳过", Theme.INK_2);
+        card.addView(stats, WordUi.lp());
+        stage.addView(card, WordUi.lp());
+        if (wrong > 0) ui.note(stage, "拼错的词已记入错题本，可在“我的 › 错题本”里再练。");
+
+        final int[] missing = ExampleActivity.missingExampleIndices(words, exampleIndices);
+        ui.pin(ui.primaryButton(missing.length > 0 ? "继续补充例句" : "完成", v -> continueAfterSpelling()));
+        Motion.stagger(stage);
+    }
+
+    /** One column of the result row: a large figure over a quiet label, separated by hairlines. */
+    private void stat(LinearLayout row, int value, String label, int color) {
+        if (row.getChildCount() > 0) {
+            View rule = new View(this);
+            rule.setBackgroundColor(Theme.HAIRLINE);
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(Math.max(1, ui.dp(.75f)), ui.dp(44));
+            rp.topMargin = ui.dp(6);
+            row.addView(rule, rp);
+        }
+        LinearLayout column = ui.col();
+        column.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView number = ui.type(String.valueOf(value), Theme.T_DISPLAY);
+        number.setTextColor(color);
+        number.setGravity(Gravity.CENTER);
+        column.addView(number, WordUi.lp());
+        TextView caption = ui.type(label, Theme.T_CAPTION);
+        caption.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams cp = WordUi.lp();
+        cp.topMargin = ui.dp(Theme.SPACE_4);
+        column.addView(caption, cp);
+        row.addView(column, WordUi.weight());
+        Motion.count(number, value, "");
+    }
+
+    private void continueAfterSpelling() {
+        int[] missing = ExampleActivity.missingExampleIndices(words, exampleIndices);
+        if (missing.length == 0) {
+            finish();
+            return;
+        }
+        // A forward step in the same flow: hand over to the example editor with the forward page
+        // motion. finish() installs the "return" animation, so re-assert the forward pair after it.
+        Motion.replace(this, new Intent(this, ExampleActivity.class).putExtra("taskId", taskId).putExtra("indices", missing));
+    }
+
+    private void saveResult() {
+        if (historyAt <= 0) return;
+        try {
+            JSONArray tasks = Store.tasks(this);
+            JSONObject task = Store.find(tasks, taskId);
+            if (task == null) return;
+            JSONArray history = task.optJSONArray("history");
+            if (history == null) return;
+            for (int i = history.length() - 1; i >= 0; i--) {
+                JSONObject entry = history.optJSONObject(i);
+                if (entry != null && entry.optLong("at") == historyAt && entry.optInt("stage") == round) {
+                    entry.put("spellingTotal", indices.length)
+                            .put("spellingCorrect", correct)
+                            .put("spellingWrong", wrong)
+                            .put("spellingSkipped", Math.max(0, indices.length - correct - wrong));
+                    Store.save(this, tasks);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            ui.error("拼写成绩暂未写入：" + e.getMessage());
+        }
+    }
+
+    @Override public void onBackPressed() {
+        boolean midway = indices != null && position < indices.length && (position > 0 || answered);
+        if (!midway) {
+            finish();
+            return;
+        }
+        String message = historyAt > 0
+                ? "拼错的词已记入错题本；本次拼写成绩不会写入复习记录。"
+                : "拼错的词已记入错题本。";
+        Sheet.confirm(this, "结束拼写？", message, "继续拼写", "结束", true, this::finish);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /** Hint in the UI sans face (optionally at a fixed dp size) for fields that type in serif. */
+    static CharSequence sansHint(String text, int sizeDp) {
+        SpannableString hint = new SpannableString(text);
+        hint.setSpan(new TypefaceSpan("sans-serif"), 0, hint.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if (sizeDp > 0) hint.setSpan(new AbsoluteSizeSpan(sizeDp, true), 0, hint.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return hint;
+    }
+
+    /** Hides the target word (and its inflections) inside the example so it hints without telling. */
+    private static String cloze(String example, String english) {
+        if (english == null || english.isEmpty()) return example;
+        try {
+            Pattern word = Pattern.compile("(?i)(?<![\\p{L}])" + Pattern.quote(english) + "[\\p{L}]*");
+            return word.matcher(example).replaceAll("_____");
+        } catch (RuntimeException e) {
+            return example;
+        }
+    }
+
+    /** A short horizontal shake that says "not yet" without a dialog. */
+    private static void nudge(View v) {
+        if (v == null || !Motion.enabled(v.getContext())) return;
+        float d = v.getResources().getDisplayMetrics().density;
+        ObjectAnimator shake = ObjectAnimator.ofFloat(v, View.TRANSLATION_X, 0, -6 * d, 5 * d, -3 * d, 0);
+        shake.setDuration(260);
+        shake.setInterpolator(Motion.EASE);
+        shake.start();
+    }
+
+    private void showKeyboard(EditText field) {
+        field.requestFocus();
+        field.postDelayed(() -> {
+            if (!field.isAttachedToWindow() || !field.isEnabled() || isFinishing()) return;
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT);
+        }, 220);
+    }
+
+    private void hideKeyboard(View anchor) {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null && anchor != null && anchor.getWindowToken() != null) imm.hideSoftInputFromWindow(anchor.getWindowToken(), 0);
+    }
 }

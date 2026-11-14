@@ -34,7 +34,7 @@ def geometry(node):
     raise ValueError("Unsupported SVG element: " + kind)
 
 
-icons = ["arrow-left", "arrow-right", "camera", "image-plus", "plus", "check", "rotate-cw", "list", "pencil", "trash-2", "book-open", "house", "circle-check", "settings-2"]
+icons = ["arrow-left", "arrow-right", "camera", "image-plus", "plus", "check", "rotate-cw", "list", "pencil", "trash-2", "book-open", "house", "circle-check", "settings-2", "calendar-days", "user-round", "volume-2", "chevron-right", "chevron-left", "chevron-down", "chevron-up", "x", "ellipsis", "bell", "sparkles", "flame", "clock", "repeat", "spell-check", "shield-check", "book-x", "pen-line", "layers", "file-text", "images", "undo-2", "circle-alert", "list-checks", "target"]
 vendor = ROOT / "vendor/lucide"
 vendor.mkdir(parents=True, exist_ok=True)
 source = Path(os.environ.get("LUCIDE_HOME", "/home/cudebug/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/lucide"))

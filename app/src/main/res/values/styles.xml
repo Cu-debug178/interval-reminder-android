@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Paper & Ink: the platform widgets (switches, checkboxes, radios, cursors, any remaining
+         system dialog) pick up the pine accent and warm paper instead of stock teal/grey. -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#1F5A4C</item>
+        <item name="android:colorPrimaryDark">#F6F5F1</item>
+        <item name="android:colorAccent">#1F5A4C</item>
+        <item name="android:colorControlNormal">#959B97</item>
+        <item name="android:colorControlActivated">#1F5A4C</item>
+        <item name="android:colorControlHighlight">#161B2220</item>
+        <item name="android:colorButtonNormal">#EFEEE9</item>
+        <item name="android:textColorPrimary">#1B2220</item>
+        <item name="android:textColorSecondary">#59625E</item>
+        <item name="android:textColorHint">#959B97</item>
+        <item name="android:windowBackground">@color/paper</item>
+        <item name="android:statusBarColor">#F6F5F1</item>
+        <item name="android:navigationBarColor">#F6F5F1</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:alertDialogTheme">@style/AppAlert</item>
+        <item name="android:timePickerDialogTheme">@style/AppAlert</item>
+        <item name="android:datePickerDialogTheme">@style/AppAlert</item>
+    </style>
+
+    <style name="AppAlert" parent="@android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#1F5A4C</item>
+        <item name="android:colorPrimary">#1F5A4C</item>
+        <item name="android:colorControlActivated">#1F5A4C</item>
+        <item name="android:textColorPrimary">#1B2220</item>
+        <item name="android:windowBackground">@drawable/dialog_surface</item>
+    </style>
+
+    <style name="SheetDialog" parent="@android:style/Theme.Material.Light.Dialog.NoActionBar">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@style/SheetAnimation</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.32</item>
+        <item name="android:windowMinWidthMajor">100%</item>
+        <item name="android:windowMinWidthMinor">100%</item>
+        <item name="android:colorAccent">#1F5A4C</item>
+        <item name="android:colorControlActivated">#1F5A4C</item>
+        <item name="android:colorControlNormal">#959B97</item>
+        <item name="android:textColorPrimary">#1B2220</item>
+        <item name="android:textColorHint">#959B97</item>
+    </style>
+
+    <style name="SheetAnimation">
+        <item name="android:windowEnterAnimation">@anim/sheet_in</item>
+        <item name="android:windowExitAnimation">@anim/sheet_out</item>
+    </style>
+</resources>

@@ -1,4 +1,4 @@
-# Interval Reminder for Android 0.5.0
+# Interval Reminder for Android 0.7.5
 
 [简体中文文档](README.md)
 
@@ -10,7 +10,7 @@ A native Android app for interval reminders, text/AI vocabulary import, card-by-
 2. Choose **Quick confirmation** or **Detailed editing**, then name the group to create a review task.
 3. During review, mark **Remembered** or **Forgotten**. Remembered raises mastery; forgotten words go to the Wrong Book and lower mastery.
 4. After a round, optionally flip direction without advancing the schedule, or complete the round to advance reminders.
-5. Configure an API key under **Profile > AI** for review-linked tools (examples, wrong-word analysis, scenarios, session recaps). Sentence practice lives under Profile. Use MiMo for photo recognition; DeepSeek works for text. AI is off by default.
+5. Under **Profile > AI**, add one or more configs (a display name, DeepSeek, Xiaomi MiMo, or any OpenAI-compatible base URL, plus an API key and model). A config is listed only after the connection check succeeds, and the page shows the model in use. Keys stay in the device keystore and are masked after saving. AI is off by default. Review tools can then fill examples, analyze mistakes, write scenarios, and recap a round. Sentence practice lives under Profile.
 
 ## Review Settings
 
@@ -63,7 +63,7 @@ The APK is signed with a local development key. **Never commit `build/release.ke
 
 ## Download APK
 
-Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.6.0. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases); the current app version is 0.7.5. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
 
