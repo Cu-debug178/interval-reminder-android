@@ -52,16 +52,20 @@ final class Motion {
 
     // ViewPropertyAnimator keeps the last start delay (enter()/stagger() set one), so every later
     // animate() chain below resets it to stay immediate.
-    /** Pressed state: ripple + a gentle 3% squeeze that springs back on release. */
+    /** Pressed state: ripple, a gentle 3% squeeze, and a haptic tick on finger down. */
     static void press(View v){press(v,.97f);}
     static void press(View v,float scale){
         if(!(v.getBackground() instanceof android.graphics.drawable.RippleDrawable))Theme.applyRipple(v,v.getBackground());
         v.setOnTouchListener((view,event)->{
             int action=event.getActionMasked();
-            if(action==MotionEvent.ACTION_DOWN&&view.isEnabled()&&enabled(view.getContext()))
-                view.animate().scaleX(scale).scaleY(scale).setStartDelay(0).setDuration(90).setInterpolator(EASE).start();
-            else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)
+            if(action==MotionEvent.ACTION_DOWN){
+                Feedback.press(view);
+                if(view.isEnabled()&&enabled(view.getContext()))
+                    view.animate().scaleX(scale).scaleY(scale).setStartDelay(0).setDuration(90).setInterpolator(EASE).start();
+            }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+                Feedback.releasePress(view);
                 view.animate().scaleX(1).scaleY(1).setStartDelay(0).setDuration(enabled(view.getContext())?Theme.PRESS_MS+60:0).setInterpolator(EASE_OUT).start();
+            }
             return false;
         });
     }

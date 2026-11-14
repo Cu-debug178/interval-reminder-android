@@ -407,6 +407,7 @@ public final class ReviewActivity extends ScreenActivity {
                 down[1]=event.getY();
                 card.removeCallbacks(longPress);
                 if(speaking[0]){forwardSpeak(speak,event,true);return true;}
+                if(!changing)Feedback.press(view);
                 if(view.isEnabled()&&Motion.enabled(view.getContext()))
                     view.animate().scaleX(.99f).scaleY(.99f).setStartDelay(0).setDuration(90).setInterpolator(Motion.EASE).start();
                 card.postDelayed(longPress,timeout);
@@ -429,6 +430,7 @@ public final class ReviewActivity extends ScreenActivity {
             }
             if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
                 card.removeCallbacks(longPress);
+                Feedback.releasePress(view);
                 if(Motion.enabled(view.getContext()))
                     view.animate().scaleX(1).scaleY(1).setStartDelay(0).setDuration(Theme.PRESS_MS+60).setInterpolator(Motion.EASE_OUT).start();
                 else{view.setScaleX(1);view.setScaleY(1);}

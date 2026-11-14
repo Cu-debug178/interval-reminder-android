@@ -235,7 +235,21 @@ public final class NativeSmokeTest extends Instrumentation {
         prefs.edit().putBoolean("haptic",true).putBoolean("feedbackSound",false).commit();Feedback feedback=new Feedback();HapticProbe probe=new HapticProbe(getTargetContext());
         feedback.respond(probe,Feedback.RETRY);check(probe.effect==android.view.HapticFeedbackConstants.LONG_PRESS,"forgotten answer uses a distinct haptic");
         probe.effect=-1;feedback.reveal(probe);check(probe.effect==android.view.HapticFeedbackConstants.CLOCK_TICK,"revealing the answer has immediate haptic feedback");
+        probe.effect=-1;Motion.press(probe);long time=android.os.SystemClock.uptimeMillis();
+        android.view.MotionEvent down=android.view.MotionEvent.obtain(time,time,android.view.MotionEvent.ACTION_DOWN,0,0,0);
+        probe.dispatchTouchEvent(down);down.recycle();
+        check(probe.effect==android.view.HapticFeedbackConstants.CLOCK_TICK,"shared press vibrates on finger down");
+        probe.effect=-1;feedback.respond(probe,Feedback.RETRY);feedback.reveal(probe);Feedback.tick(probe);
+        check(probe.effect==-1,"click, reveal, and answer do not vibrate again after finger down");
+        android.view.MotionEvent up=android.view.MotionEvent.obtain(time,time+20,android.view.MotionEvent.ACTION_UP,0,0,0);
+        probe.dispatchTouchEvent(up);up.recycle();
+        probe.effect=-1;feedback.respond(probe,Feedback.RETRY);check(probe.effect==android.view.HapticFeedbackConstants.LONG_PRESS,"a later answer still uses the forgotten haptic");
         prefs.edit().putBoolean("haptic",false).commit();probe.effect=-1;feedback.respond(probe,Feedback.RETRY);check(probe.effect==-1,"haptic preference suppresses vibration");
+        android.view.MotionEvent downOff=android.view.MotionEvent.obtain(time,time+40,android.view.MotionEvent.ACTION_DOWN,0,0,0);
+        probe.dispatchTouchEvent(downOff);downOff.recycle();
+        check(probe.effect==-1,"haptic preference suppresses the finger-down vibration");
+        android.view.MotionEvent upOff=android.view.MotionEvent.obtain(time,time+50,android.view.MotionEvent.ACTION_UP,0,0,0);
+        probe.dispatchTouchEvent(upOff);upOff.recycle();
         prefs.edit().putBoolean("haptic",oldHaptic).putBoolean("feedbackSound",oldSound).commit();
     }
     private static final class HapticProbe extends View{

@@ -6,6 +6,7 @@ import android.media.AudioManager;
 import android.media.SoundPool;
 import android.os.SystemClock;
 import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.view.View;
 
 final class Feedback {
@@ -36,16 +37,43 @@ final class Feedback {
         } catch(RuntimeException ignored) { release(); }
     }
     void confirm(View view){respond(view,COMPLETE);}
+    /**
+     * Non-zero while a finger-down tick for the current gesture has not yet cleared.
+     * Click and checked-change listeners run on the way up; they must not vibrate again.
+     */
+    private static int pressHold;
+    /** Light tick at finger down. Honours the haptic preference; motion settings do not gate it. */
+    static void press(View view){
+        if(view==null||!view.isEnabled())return;
+        if(!Store.prefs(view.getContext()).getBoolean("haptic",true))return;
+        pressHold++;
+        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+    }
+    /** Clears the finger-down hold after this gesture's click listeners have run. */
+    static void releasePress(View view){
+        if(view==null)return;
+        int token=pressHold;
+        Runnable clear=()->{if(pressHold==token)pressHold=0;};
+        if(view.isAttachedToWindow())view.post(clear);else clear.run();
+    }
+    /** Touch listener for controls that already vibrate but do not use the press squeeze. */
+    static boolean touch(View view,MotionEvent event){
+        int action=event.getActionMasked();
+        if(action==MotionEvent.ACTION_DOWN)press(view);
+        else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)releasePress(view);
+        return false;
+    }
+    static boolean held(){return pressHold!=0;}
     /** Light selection tick (segment change, toggle). Haptic only, never sound; honours the haptic preference. */
     static void tick(View view){
-        if(view!=null&&Store.prefs(view.getContext()).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        if(view!=null&&pressHold==0&&Store.prefs(view.getContext()).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }
     void reveal(View view){
-        if(Store.prefs(view.getContext()).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        if(pressHold==0&&Store.prefs(view.getContext()).getBoolean("haptic",true))view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }
     void respond(View view,int kind){
         Context context=view.getContext();
-        if(Store.prefs(context).getBoolean("haptic",true))view.performHapticFeedback(kind==RETRY?HapticFeedbackConstants.LONG_PRESS:HapticFeedbackConstants.VIRTUAL_KEY);
+        if(pressHold==0&&Store.prefs(context).getBoolean("haptic",true))view.performHapticFeedback(kind==RETRY?HapticFeedbackConstants.LONG_PRESS:HapticFeedbackConstants.VIRTUAL_KEY);
         if(Store.prefs(context).getBoolean("feedbackSound",true))play(context,kind);
     }
     void preview(Context context,int kind){play(context,kind);}
