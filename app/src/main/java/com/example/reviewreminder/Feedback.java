@@ -43,9 +43,16 @@ final class Feedback {
      */
     private static int pressHold;
     /** Light tick at finger down. Honours the haptic preference; motion settings do not gate it. */
-    static void press(View view){
+    static void press(View view){press(view,true);}
+    /**
+     * Finger-down tick for the haptic switch itself. The saved preference is still the old value
+     * until the settings page is left, so the gesture that turns the switch off must stay silent
+     * and the gesture that turns it on ticks even when that saved value is still false.
+     */
+    static void pressToggle(View view,boolean currentlyOn){if(!currentlyOn)press(view,false);}
+    private static void press(View view,boolean honorPreference){
         if(view==null||!view.isEnabled())return;
-        if(!Store.prefs(view.getContext()).getBoolean("haptic",true))return;
+        if(honorPreference&&!Store.prefs(view.getContext()).getBoolean("haptic",true))return;
         pressHold++;
         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }

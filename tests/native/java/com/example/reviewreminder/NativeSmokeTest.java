@@ -248,6 +248,8 @@ public final class NativeSmokeTest extends Instrumentation {
         android.view.MotionEvent downOff=android.view.MotionEvent.obtain(time,time+40,android.view.MotionEvent.ACTION_DOWN,0,0,0);
         probe.dispatchTouchEvent(downOff);downOff.recycle();
         check(probe.effect==-1,"haptic preference suppresses the finger-down vibration");
+        probe.effect=-1;Feedback.pressToggle(probe,true);check(probe.effect==-1,"turning the haptic switch off does not vibrate");
+        Feedback.pressToggle(probe,false);check(probe.effect==android.view.HapticFeedbackConstants.CLOCK_TICK,"turning the haptic switch on vibrates before the preference is saved");
         android.view.MotionEvent upOff=android.view.MotionEvent.obtain(time,time+50,android.view.MotionEvent.ACTION_UP,0,0,0);
         probe.dispatchTouchEvent(upOff);upOff.recycle();
         prefs.edit().putBoolean("haptic",oldHaptic).putBoolean("feedbackSound",oldSound).commit();

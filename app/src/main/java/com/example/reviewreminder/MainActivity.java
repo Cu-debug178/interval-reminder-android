@@ -1582,7 +1582,14 @@ public class MainActivity extends ScreenActivity {
         previews.addView(ui.quietPill("试听：忘记了",R.drawable.ic_volume_2,v->interaction.preview(this,Feedback.RETRY)),margins(-2,dp2(Theme.BUTTON_SMALL),Theme.SPACE_8,0,0,0));
         feedback.addView(previews,WordUi.lp());
         Switch haptic=ui.switchRow(feedback,"卡片交互触感",null,prefs.getBoolean("haptic",true));
-        // The pref is only saved on leaving the category, so tick from the switch's own new state.
+        // The pref is written only when leaving this page. Decide from the switch's current
+        // state at finger down: turning it off stays silent, turning it on ticks immediately.
+        haptic.setOnTouchListener((v,event)->{
+            int action=event.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN)Feedback.pressToggle(v,haptic.isChecked());
+            else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)Feedback.releasePress(v);
+            return false;
+        });
         haptic.setOnCheckedChangeListener((b,on)->{if(on&&!Feedback.held())b.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);});
         Switch reminderSound=ui.switchRow(feedback,"到期通知使用声音",null,prefs.getBoolean("reminderSound",true));
         content.addView(feedback,WordUi.lp());
