@@ -1,5 +1,6 @@
 package com.example.reviewreminder;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.Context;
 import android.provider.Settings;
@@ -11,6 +12,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.PathInterpolator;
+import android.widget.ProgressBar;
 
 final class Motion {
     private Motion() {}
@@ -38,6 +40,18 @@ final class Motion {
                 view.animate().scaleX(1).scaleY(1).setDuration(enabled(view.getContext())?Theme.PRESS_MS:0).setInterpolator(EASE).start();
             return false;
         });
+    }
+    static void selected(View v){
+        if(!enabled(v.getContext()))return;
+        v.animate().cancel();v.setScaleX(.94f);v.setScaleY(.94f);v.setTranslationY(2*v.getResources().getDisplayMetrics().density);
+        v.animate().scaleX(1).scaleY(1).translationY(0).setDuration(Theme.PRESS_MS).setInterpolator(EASE).start();
+    }
+    static void progress(ProgressBar bar,int target){
+        Object running=bar.getTag();if(running instanceof ValueAnimator)((ValueAnimator)running).cancel();
+        int to=Math.max(0,Math.min(bar.getMax(),target));
+        if(!enabled(bar.getContext())){bar.setProgress(to);return;}
+        int from=bar.getProgress();ValueAnimator animator=ValueAnimator.ofInt(from,to);animator.setDuration(Theme.ENTER_MS);animator.setInterpolator(EASE);
+        animator.addUpdateListener(a->bar.setProgress((Integer)a.getAnimatedValue()));bar.setTag(animator);animator.start();
     }
     static void layout(ViewGroup parent){if(enabled(parent.getContext())){TransitionSet t=new TransitionSet().setOrdering(TransitionSet.ORDERING_TOGETHER).addTransition(new ChangeBounds()).addTransition(new Fade());t.setDuration(Theme.ENTER_MS-20).setInterpolator(EASE);TransitionManager.beginDelayedTransition(parent,t);}}
     static void open(Activity a,android.content.Intent intent){a.startActivity(intent);if(enabled(a))a.overridePendingTransition(R.anim.page_in,R.anim.page_out);else a.overridePendingTransition(0,0);}

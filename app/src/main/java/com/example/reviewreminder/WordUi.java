@@ -27,6 +27,10 @@ final class WordUi {
         body=col();body.setPadding(dp(Theme.PAGE_PAD),dp(Theme.SPACE_12),dp(Theme.PAGE_PAD),dp(Theme.SPACE_24));
         s.addView(body);screen.addView(s,new LinearLayout.LayoutParams(-1,0,1));
         a.setContentView(screen);
+        systemBars();
+    }
+
+    void systemBars(){
         a.getWindow().setStatusBarColor(Theme.BG);
         a.getWindow().setNavigationBarColor(Theme.BG);
         int flags=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
@@ -41,12 +45,12 @@ final class WordUi {
         back.setImageResource(R.drawable.ic_arrow_left);
         back.setContentDescription("返回");
         back.setImageTintList(android.content.res.ColorStateList.valueOf(Theme.PRIMARY));
-        back.setBackground(Theme.shape(a,Theme.PRIMARY_SOFT,Theme.RADIUS_CHIP));
+        back.setBackground(Theme.shape(a,Theme.SURFACE,Theme.RADIUS_CHIP,Theme.BORDER,1));
         back.setPadding(dp(12),dp(12),dp(12),dp(12));
         back.setOnClickListener(v->a.onBackPressed());
         Motion.press(back);
-        header.addView(back,new LinearLayout.LayoutParams(dp(40),dp(40)));
-        TextView h=text(title,20,Theme.INK);h.setTypeface(null,1);
+        header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        TextView h=text(title,22,Theme.INK);h.setTypeface(null,1);
         LinearLayout.LayoutParams heading=new LinearLayout.LayoutParams(0,-2,1);heading.leftMargin=dp(Theme.SPACE_12);
         header.addView(h,heading);
         return header;
@@ -76,7 +80,7 @@ final class WordUi {
     }
 
     Button secondaryButton(String title,View.OnClickListener action){
-        return styledButton(title,Theme.PRIMARY_SOFT,Theme.PRIMARY,true,action);
+        return styledButton(title,Theme.PRIMARY_SOFT,Theme.PRIMARY,false,action);
     }
 
     Button ghostButton(String title,View.OnClickListener action){
@@ -89,7 +93,7 @@ final class WordUi {
     Button textButton(String title,View.OnClickListener action){
         Button b=new Button(a);
         b.setText(title);b.setAllCaps(false);b.setTextSize(Theme.BODY_SIZE);b.setTextColor(Theme.PRIMARY);
-        b.setTypeface(null,1);b.setMinHeight(dp(40));b.setMinimumHeight(dp(40));
+        b.setTypeface(null,1);b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));
         b.setPadding(dp(Theme.SPACE_8),dp(Theme.SPACE_4),dp(Theme.SPACE_8),dp(Theme.SPACE_4));
         b.setBackground(null);b.setStateListAnimator(null);b.setElevation(0);
         b.setOnClickListener(action);Motion.press(b);return b;
@@ -97,6 +101,23 @@ final class WordUi {
 
     Button dangerTextButton(String title,View.OnClickListener action){
         Button b=textButton(title,action);b.setTextColor(Theme.DANGER);return b;
+    }
+
+    Button dangerSoftButton(String title,View.OnClickListener action){
+        return styledButton(title,Theme.DANGER_SOFT,Theme.DANGER,false,action);
+    }
+
+    TextView chip(String label,int foreground,int background){
+        TextView t=text(label,12,foreground);t.setGravity(Gravity.CENTER);t.setTypeface(null,1);
+        t.setPadding(dp(Theme.SPACE_8),dp(Theme.SPACE_4),dp(Theme.SPACE_8),dp(Theme.SPACE_4));
+        t.setBackground(Theme.shape(a,background,Theme.RADIUS_CHIP));return t;
+    }
+
+    ProgressBar progress(int percent){
+        ProgressBar bar=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(Theme.ACCENT));
+        bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Theme.TRACK));
+        bar.setProgress(0);bar.setContentDescription("学习进度 "+percent+"%");bar.post(()->Motion.progress(bar,percent));return bar;
     }
 
     private Button styledButton(String title,int bgColor,int fg,boolean withIcon,View.OnClickListener action){

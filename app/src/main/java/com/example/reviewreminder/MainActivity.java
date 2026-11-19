@@ -1,5 +1,6 @@
 package com.example.reviewreminder;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -32,7 +33,7 @@ public class MainActivity extends ScreenActivity {
     private static final int INK=Theme.INK, FOREST=Theme.PRIMARY;
     private static final int MUTED=Theme.MUTED, MINT=Theme.PRIMARY_SOFT;
     private static final int CORAL=Theme.DANGER, CORAL_PALE=Theme.DANGER_SOFT;
-    private static final int LINE=Theme.BORDER, GOLD=Color.rgb(235,177,83);
+    private static final int LINE=Theme.BORDER, GOLD=Theme.ACCENT;
     private LinearLayout root, content;
     private int currentPage=0;
     private int settingsCategory=-1;
@@ -125,16 +126,17 @@ public class MainActivity extends ScreenActivity {
     private void gap(LinearLayout p,int h) { View v=new View(this); p.addView(v,new LinearLayout.LayoutParams(1,dp(h))); }
     private View divider() { View v=new View(this); v.setBackgroundColor(LINE); return v; }
     private Button button(String label,int style,View.OnClickListener click) {
-        Button b=new Button(this); b.setText(label); b.setTextSize(Theme.BODY_SIZE); b.setTypeface(null,1); b.setAllCaps(false);
+        Button b=new Button(this); b.setText(label); b.setTextSize(Theme.BODY_SIZE); b.setAllCaps(false);
         b.setMinHeight(dp(Theme.BUTTON_HEIGHT)); b.setMinimumHeight(dp(Theme.BUTTON_HEIGHT)); b.setPadding(dp(16),0,dp(16),0); b.setStateListAnimator(null);b.setElevation(0);
+        b.setTypeface(null,style==2?0:1);
         if(style==0) { b.setTextColor(Color.WHITE); b.setBackground(shape(FOREST,Theme.RADIUS_BUTTON,FOREST,0)); }
         else if(style==1) { b.setTextColor(FOREST); b.setBackground(shape(MINT,Theme.RADIUS_BUTTON,MINT,0)); }
         else { b.setTextColor(INK); b.setBackground(shape(SURFACE,Theme.RADIUS_BUTTON,LINE,1)); }
-        b.setOnClickListener(click); if(style==0)UiIcons.apply(b,Color.WHITE);Motion.press(b); return b;
+        b.setOnClickListener(click); if(style<2)UiIcons.apply(b,style==0?Color.WHITE:FOREST);Motion.press(b); return b;
     }
     private Button textAction(String label,View.OnClickListener click){
         Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(Theme.BODY_SIZE);b.setTextColor(FOREST);b.setTypeface(null,1);
-        b.setMinHeight(dp(40));b.setMinimumHeight(dp(40));b.setPadding(dp(8),dp(4),dp(8),dp(4));
+        b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));b.setPadding(dp(8),dp(4),dp(8),dp(4));
         b.setBackground(null);b.setStateListAnimator(null);b.setElevation(0);b.setOnClickListener(click);Motion.press(b);return b;
     }
     private void render() {
@@ -158,20 +160,22 @@ public class MainActivity extends ScreenActivity {
     private LinearLayout bottomBar() {
         LinearLayout host=column();
         View hairline=new View(this);hairline.setBackgroundColor(LINE);host.addView(hairline,new LinearLayout.LayoutParams(-1,dp(1)));
-        LinearLayout bar=row(); bar.setPadding(dp(Theme.SPACE_8),dp(Theme.SPACE_8),dp(Theme.SPACE_8),dp(Theme.SPACE_12));
+        LinearLayout bar=row(); bar.setPadding(dp(Theme.SPACE_8),dp(Theme.SPACE_4),dp(Theme.SPACE_8),dp(Theme.SPACE_8));
         bar.setBackgroundColor(SURFACE);
         String[] names={"主页","日历","我的"};
         for(int i=0;i<3;i++) {
             final int page=i; boolean selected=i==currentPage;
             LinearLayout item=column(); item.setGravity(Gravity.CENTER); item.setFocusable(true); item.setClickable(true);
-            item.setMinimumHeight(dp(52)); item.setPadding(dp(Theme.SPACE_8),dp(Theme.SPACE_4),dp(Theme.SPACE_8),dp(Theme.SPACE_4));
-            item.setBackground(shape(selected?MINT:Color.TRANSPARENT,Theme.RADIUS_CHIP,Color.TRANSPARENT,0));
-            ImageView icon=new ImageView(this);icon.setImageResource(new int[]{R.drawable.ic_house,R.drawable.ic_calendar_days,R.drawable.ic_user_round}[i]);icon.setImageTintList(ColorStateList.valueOf(selected?FOREST:MUTED));item.addView(icon,new LinearLayout.LayoutParams(dp(20),dp(20)));
+            item.setMinimumHeight(dp(64)); item.setPadding(dp(Theme.SPACE_8),dp(Theme.SPACE_4),dp(Theme.SPACE_8),dp(Theme.SPACE_4));
+            item.setBackgroundColor(Color.TRANSPARENT);
+            ImageView icon=new ImageView(this);icon.setImageResource(new int[]{R.drawable.ic_house,R.drawable.ic_calendar_days,R.drawable.ic_user_round}[i]);icon.setImageTintList(ColorStateList.valueOf(selected?FOREST:MUTED));
+            icon.setPadding(dp(Theme.SPACE_8),dp(6),dp(Theme.SPACE_8),dp(6));if(selected)icon.setBackground(shape(MINT,Theme.RADIUS_CHIP,Color.TRANSPARENT,0));
+            item.addView(icon,new LinearLayout.LayoutParams(dp(44),dp(32)));if(selected)Motion.selected(icon);
             TextView label=text(names[i],12,selected?FOREST:MUTED); if(selected)label.setTypeface(null,1);
             LinearLayout.LayoutParams labelLp=new LinearLayout.LayoutParams(-2,-2); labelLp.topMargin=dp(2); item.addView(label,labelLp);
             item.setContentDescription(names[i]); item.setOnClickListener(v->goPage(page));
             Motion.press(item);
-            bar.addView(item,new LinearLayout.LayoutParams(0,dp(52),1));
+            bar.addView(item,new LinearLayout.LayoutParams(0,dp(64),1));
         }
         host.addView(bar); return host;
     }
@@ -182,6 +186,13 @@ public class MainActivity extends ScreenActivity {
         navigate(page);
     }
     private void navigate(int page){int direction=page>currentPage?1:-1;changingPage=true;Motion.leave(content,direction,()->{if(isFinishing()||isDestroyed())return;currentPage=page;if(page!=2)settingsCategory=-1;render();Motion.enter(content,direction);changingPage=false;});}
+    private final class TodayRing extends View {
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private final RectF oval=new RectF();private final int count,total;private float sweep;private ValueAnimator animator;
+        TodayRing(int count,int total){super(MainActivity.this);this.count=count;this.total=total;setContentDescription("今日待复习 "+count+" 项，全部计划 "+total+" 项");}
+        @Override protected void onAttachedToWindow(){super.onAttachedToWindow();float target=total==0?0:360f*Math.min(count,total)/total;if(!Motion.enabled(getContext())){sweep=target;return;}animator=ValueAnimator.ofFloat(0,target);animator.setDuration(Theme.ENTER_MS+20);animator.setInterpolator(new android.view.animation.PathInterpolator(.2f,0,0,1));animator.addUpdateListener(a->{sweep=(Float)a.getAnimatedValue();invalidate();});animator.start();}
+        @Override protected void onDetachedFromWindow(){if(animator!=null)animator.cancel();super.onDetachedFromWindow();}
+        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);float d=getResources().getDisplayMetrics().density,cx=getWidth()/2f,cy=getHeight()/2f;oval.set(6*d,6*d,getWidth()-6*d,getHeight()-6*d);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(4*d);paint.setStrokeCap(Paint.Cap.ROUND);paint.setColor(Theme.TRACK);canvas.drawArc(oval,0,360,false,paint);paint.setColor(count==0?Theme.MUTED:GOLD);canvas.drawArc(oval,-90,sweep,false,paint);paint.setStyle(Paint.Style.FILL);paint.setTextAlign(Paint.Align.CENTER);paint.setColor(INK);paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);paint.setTextSize(20*getResources().getDisplayMetrics().scaledDensity);canvas.drawText(String.valueOf(count),cx,cy+2*d,paint);paint.setTypeface(android.graphics.Typeface.DEFAULT);paint.setColor(MUTED);paint.setTextSize(10*getResources().getDisplayMetrics().scaledDensity);canvas.drawText("今日",cx,cy+17*d,paint);}
+    }
     private final class IconView extends View {
         private final int type,color; private final Paint p=new Paint(3);
         IconView(int type,int color){super(MainActivity.this);this.type=type;this.color=color;setContentDescription(type==0?"主页图标":type==1?"已完成图标":"设置图标");}
@@ -200,7 +211,7 @@ public class MainActivity extends ScreenActivity {
     private String todayLabel() { return new SimpleDateFormat("M月d日 EEEE",Locale.CHINA).format(new Date()); }
     private List<JSONObject> taskList(boolean completed) {
         JSONArray all=Store.tasks(this); List<JSONObject> list=new ArrayList<>();
-        for(int i=0;i<all.length();i++){JSONObject t=all.optJSONObject(i);if(t!=null&&t.optBoolean("done")==completed)list.add(t);}
+        for(int i=0;i<all.length();i++){JSONObject t=all.optJSONObject(i);if(t!=null&&t.optBoolean("done")==completed&&!t.optBoolean("archived"))list.add(t);}
         Collections.sort(list,new Comparator<JSONObject>(){@Override public int compare(JSONObject a,JSONObject b){long x=completed?lastCompleted(a):a.optLong("due"), y=completed?lastCompleted(b):b.optLong("due");return Long.compare(completed?-x:x,completed?-y:y);}});
         return list;
     }
@@ -216,13 +227,8 @@ public class MainActivity extends ScreenActivity {
         TextView dueHint=text(dueLine,Theme.BODY_SIZE,today==0?MUTED:FOREST);if(today>0)dueHint.setTypeface(null,1);
         LinearLayout.LayoutParams dueLp=new LinearLayout.LayoutParams(-2,-2);dueLp.topMargin=dp(Theme.SPACE_8);copy.addView(dueHint,dueLp);
         header.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
-        content.addView(header);gap(content,Theme.SPACE_16);
-
-        LinearLayout tools=row();
-        tools.addView(button("录词",2,v->Motion.open(this,new Intent(this,ImportActivity.class))),new LinearLayout.LayoutParams(0,dp(44),1));
-        LinearLayout.LayoutParams createLp=new LinearLayout.LayoutParams(0,dp(44),1);createLp.leftMargin=dp(Theme.SPACE_8);
-        tools.addView(button("新建",2,v->create()),createLp);
-        content.addView(tools);gap(content,Theme.SPACE_16);
+        TodayRing ring=new TodayRing(today,active.size());LinearLayout.LayoutParams ringLp=new LinearLayout.LayoutParams(dp(76),dp(76));ringLp.leftMargin=dp(Theme.SPACE_12);header.addView(ring,ringLp);
+        content.addView(header);gap(content,Theme.SPACE_20);
 
         if(!Notifications.enabled(this)){
             LinearLayout warning=row();warning.setPadding(dp(Theme.SPACE_12),dp(Theme.SPACE_12),dp(Theme.SPACE_12),dp(Theme.SPACE_12));warning.setBackground(shape(Theme.WARN_SOFT,Theme.RADIUS_CHIP,0,0));
@@ -242,16 +248,36 @@ public class MainActivity extends ScreenActivity {
             if(hasFuture){gap(content,Theme.SPACE_16);sectionTitle("之后安排",(active.size()-today)+" 项");for(JSONObject t:active)if(t.optLong("due")>=end)addTask(t,false,false);}
             gap(content,Theme.SPACE_24);
         }
+        learningTools();
         sectionTitle("课程","内置词表");
         addLessonCard();gap(content,Theme.SPACE_16);completedSection();
+    }
+    private void learningTools(){
+        sectionTitle("学习工具","快速开始");LinearLayout tools=row();
+        tools.addView(button("录词",1,v->Motion.open(this,new Intent(this,ImportActivity.class))),new LinearLayout.LayoutParams(0,dp(48),1.15f));
+        LinearLayout.LayoutParams createLp=new LinearLayout.LayoutParams(0,dp(48),.85f);createLp.leftMargin=dp(Theme.SPACE_8);tools.addView(button("新建",2,v->create()),createLp);content.addView(tools);gap(content,Theme.SPACE_12);
+        LinearLayout group=column();group.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));
+        addListEntry(group,"混合训练","跨词组组合复习与拼写",R.drawable.ic_rotate_cw,()->Motion.open(this,new Intent(this,PracticeSetupActivity.class)));
+        addListEntry(group,"全部计划","查看每个计划的学习进度",R.drawable.ic_list,()->Motion.open(this,new Intent(this,PlansActivity.class)));
+        content.addView(group);gap(content,Theme.SPACE_24);
+    }
+    private void addListEntry(LinearLayout group,String title,String subtitle,int icon,Runnable action){
+        if(group.getChildCount()>0){View line=divider();LinearLayout.LayoutParams lineLp=new LinearLayout.LayoutParams(-1,dp(1));lineLp.leftMargin=dp(60);group.addView(line,lineLp);}
+        LinearLayout item=row();item.setPadding(dp(Theme.SPACE_16),dp(Theme.SPACE_12),dp(Theme.SPACE_16),dp(Theme.SPACE_12));item.setMinimumHeight(dp(68));item.setClickable(true);item.setFocusable(true);
+        ImageView leading=new ImageView(this);leading.setImageResource(icon);leading.setImageTintList(ColorStateList.valueOf(FOREST));leading.setPadding(dp(9),dp(9),dp(9),dp(9));leading.setBackground(shape(MINT,Theme.RADIUS_CHIP,0,0));item.addView(leading,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        LinearLayout copy=column();TextView heading=text(title,15,INK);heading.setTypeface(null,1);copy.addView(heading);TextView detail=text(subtitle,12,MUTED);LinearLayout.LayoutParams detailLp=new LinearLayout.LayoutParams(-1,-2);detailLp.topMargin=dp(2);copy.addView(detail,detailLp);
+        LinearLayout.LayoutParams copyLp=new LinearLayout.LayoutParams(0,-2,1);copyLp.leftMargin=dp(Theme.SPACE_12);item.addView(copy,copyLp);
+        ImageView chevron=new ImageView(this);chevron.setImageResource(R.drawable.ic_arrow_right);chevron.setImageTintList(ColorStateList.valueOf(MUTED));item.addView(chevron,new LinearLayout.LayoutParams(dp(18),dp(18)));
+        item.setContentDescription(title+"，"+subtitle);item.setOnClickListener(v->action.run());Motion.press(item);group.addView(item);
     }
     private void addLessonCard(){
         LinearLayout card=column();card.setPadding(dp(Theme.SPACE_16),dp(Theme.SPACE_12),dp(Theme.SPACE_16),dp(Theme.SPACE_12));card.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));card.setElevation(0);
         LinearLayout top=row();
+        ImageView lessonIcon=new ImageView(this);lessonIcon.setImageResource(R.drawable.ic_book_open);lessonIcon.setImageTintList(ColorStateList.valueOf(FOREST));lessonIcon.setPadding(dp(10),dp(10),dp(10),dp(10));lessonIcon.setBackground(shape(MINT,Theme.RADIUS_CHIP,0,0));top.addView(lessonIcon,new LinearLayout.LayoutParams(dp(44),dp(44)));
         LinearLayout copy=column();
         TextView title=text("Lesson 1",16,INK);title.setTypeface(null,1);copy.addView(title);
-        copy.addView(text("42 张内置单词卡",Theme.CAPTION_SIZE,MUTED));
-        top.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+        TextView lessonMeta=text("42 张内置单词卡",Theme.CAPTION_SIZE,MUTED);LinearLayout.LayoutParams lessonMetaLp=new LinearLayout.LayoutParams(-1,-2);lessonMetaLp.topMargin=dp(2);copy.addView(lessonMeta,lessonMetaLp);
+        LinearLayout.LayoutParams lessonCopyLp=new LinearLayout.LayoutParams(0,-2,1);lessonCopyLp.leftMargin=dp(Theme.SPACE_12);top.addView(copy,lessonCopyLp);
         top.addView(textAction("打开校对",v->{
             new AlertDialog.Builder(this).setTitle("打开 Lesson 1？").setMessage("将用内置 42 张卡替换当前草稿，不影响已创建的任务。").setNegativeButton("取消",null).setPositiveButton("打开",(d,w)->{try{Words.lesson(this);Motion.open(this,new Intent(this,WordEditorActivity.class).putExtra("quickReview",true));}catch(Exception e){toast(e.getMessage());}}).show();
         }));
@@ -280,19 +306,19 @@ public class MainActivity extends ScreenActivity {
         if(count==0){gap(content,8);content.addView(text("此时间范围没有已完成的任务",14,MUTED));}
     }
     private void calendarPage(){
-        pageHeading("日历","查看计划与完成记录");LinearLayout calendar=column();content.addView(calendar,new LinearLayout.LayoutParams(-1,-2));gap(content,16);LinearLayout events=column();content.addView(events);showMonth(calendar,events);showCalendarEvents(events);
+        pageHeading("日历","查看计划与完成记录");LinearLayout calendar=column();calendar.setPadding(dp(Theme.SPACE_12),dp(Theme.SPACE_8),dp(Theme.SPACE_12),dp(Theme.SPACE_12));calendar.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));content.addView(calendar,new LinearLayout.LayoutParams(-1,-2));gap(content,Theme.SPACE_24);LinearLayout events=column();content.addView(events);showMonth(calendar,events);showCalendarEvents(events);
     }
     private void showMonth(LinearLayout grid,LinearLayout events){
-        grid.removeAllViews();Calendar month=Calendar.getInstance();month.setTimeInMillis(calendarDate);month.set(Calendar.DAY_OF_MONTH,1);int offset=(month.get(Calendar.DAY_OF_WEEK)+5)%7,days=month.getActualMaximum(Calendar.DAY_OF_MONTH);
+        if(grid.getChildCount()>0)Motion.layout(grid);grid.removeAllViews();Calendar month=Calendar.getInstance();month.setTimeInMillis(calendarDate);month.set(Calendar.DAY_OF_MONTH,1);int offset=(month.get(Calendar.DAY_OF_WEEK)+5)%7,days=month.getActualMaximum(Calendar.DAY_OF_MONTH);
         LinearLayout head=row();ImageButton previous=calendarArrow(R.drawable.ic_arrow_left,"上个月");previous.setOnClickListener(v->{Calendar c=Calendar.getInstance();c.setTimeInMillis(calendarDate);c.set(Calendar.DAY_OF_MONTH,1);c.add(Calendar.MONTH,-1);calendarDate=c.getTimeInMillis();showMonth(grid,events);showCalendarEvents(events);});head.addView(previous,new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView title=text(new SimpleDateFormat("yyyy年 M月",Locale.CHINA).format(month.getTime()),18,INK);title.setGravity(Gravity.CENTER);title.setTypeface(null,1);head.addView(title,new LinearLayout.LayoutParams(0,dp(48),1));ImageButton next=calendarArrow(R.drawable.ic_arrow_right,"下个月");next.setOnClickListener(v->{Calendar c=Calendar.getInstance();c.setTimeInMillis(calendarDate);c.set(Calendar.DAY_OF_MONTH,1);c.add(Calendar.MONTH,1);calendarDate=c.getTimeInMillis();showMonth(grid,events);showCalendarEvents(events);});head.addView(next,new LinearLayout.LayoutParams(dp(48),dp(48)));grid.addView(head);gap(grid,8);
         LinearLayout weekdays=row();for(String label:new String[]{"一","二","三","四","五","六","日"}){TextView t=text(label,12,MUTED);t.setGravity(Gravity.CENTER);weekdays.addView(t,new LinearLayout.LayoutParams(0,dp(24),1));}grid.addView(weekdays);
-        for(int week=0;week<6;week++){LinearLayout line=row();for(int day=0;day<7;day++){int number=week*7+day-offset+1;if(number<1||number>days){line.addView(new View(this),new LinearLayout.LayoutParams(0,dp(44),1));continue;}Calendar selected=(Calendar)month.clone();selected.set(Calendar.DAY_OF_MONTH,number);long value=selected.getTimeInMillis();boolean chosen=dayStart(value)==dayStart(calendarDate),today=dayStart(value)==dayStart(System.currentTimeMillis());LinearLayout cell=column();cell.setGravity(Gravity.CENTER);cell.setMinimumHeight(dp(44));if(chosen||today)cell.setBackground(shape(chosen?FOREST:MINT,12,0,0));TextView num=text(String.valueOf(number),14,chosen?Color.WHITE:today?FOREST:INK);num.setGravity(Gravity.CENTER);cell.addView(num);View dot=new View(this);LinearLayout.LayoutParams dotLp=new LinearLayout.LayoutParams(dp(4),dp(4));dotLp.topMargin=dp(2);dot.setBackground(shape(chosen?Color.WHITE:(dayHasPlans(value)?FOREST:Color.TRANSPARENT),2,0,0));cell.addView(dot,dotLp);cell.setContentDescription(new SimpleDateFormat("yyyy年M月d日",Locale.CHINA).format(selected.getTime()));cell.setOnClickListener(v->{calendarDate=value;showMonth(grid,events);showCalendarEvents(events);});line.addView(cell,new LinearLayout.LayoutParams(0,dp(44),1));}grid.addView(line);}
+        for(int week=0;week<6;week++){LinearLayout line=row();for(int day=0;day<7;day++){int number=week*7+day-offset+1;if(number<1||number>days){line.addView(new View(this),new LinearLayout.LayoutParams(0,dp(48),1));continue;}Calendar selected=(Calendar)month.clone();selected.set(Calendar.DAY_OF_MONTH,number);long value=selected.getTimeInMillis();boolean chosen=dayStart(value)==dayStart(calendarDate),today=dayStart(value)==dayStart(System.currentTimeMillis());LinearLayout cell=column();cell.setGravity(Gravity.CENTER);cell.setMinimumHeight(dp(48));if(chosen||today)cell.setBackground(shape(chosen?FOREST:MINT,12,0,0));TextView num=text(String.valueOf(number),14,chosen?Color.WHITE:today?FOREST:INK);num.setGravity(Gravity.CENTER);cell.addView(num);View dot=new View(this);LinearLayout.LayoutParams dotLp=new LinearLayout.LayoutParams(dp(4),dp(4));dotLp.topMargin=dp(2);dot.setBackground(shape(chosen?Color.WHITE:(dayHasPlans(value)?FOREST:Color.TRANSPARENT),2,0,0));cell.addView(dot,dotLp);cell.setContentDescription(new SimpleDateFormat("yyyy年M月d日",Locale.CHINA).format(selected.getTime()));cell.setOnClickListener(v->{calendarDate=value;showMonth(grid,events);showCalendarEvents(events);});Motion.press(cell);line.addView(cell,new LinearLayout.LayoutParams(0,dp(48),1));}grid.addView(line);}
     }
     private ImageButton calendarArrow(int icon,String label){ImageButton b=new ImageButton(this);b.setImageResource(icon);b.setImageTintList(ColorStateList.valueOf(FOREST));b.setContentDescription(label);b.setBackground(shape(SURFACE,14,LINE,1));b.setPadding(dp(14),dp(14),dp(14),dp(14));Motion.press(b);return b;
     }
     private void showCalendarEvents(LinearLayout events){
-        events.removeAllViews();long start=dayStart(calendarDate),end=shiftDay(start,1);TextView heading=text(new SimpleDateFormat("yyyy年M月d日 EEEE",Locale.CHINA).format(new Date(start)),18,INK);heading.setTypeface(null,1);events.addView(heading);gap(events,10);int count=0;
+        if(events.getChildCount()>0)Motion.layout(events);events.removeAllViews();long start=dayStart(calendarDate),end=shiftDay(start,1);TextView heading=text(new SimpleDateFormat("yyyy年M月d日 EEEE",Locale.CHINA).format(new Date(start)),18,INK);heading.setTypeface(null,1);events.addView(heading);gap(events,10);int count=0;
         JSONArray all=Store.tasks(this);for(int i=0;i<all.length();i++){JSONObject task=all.optJSONObject(i);if(task==null)continue;long id=task.optLong("id"),due=task.optLong("due");if(!task.optBoolean("done")&&due>=start&&due<end){calendarEvent(events,"计划  "+date(due),task.optString("title"),()->details(id));count++;}JSONArray history=task.optJSONArray("history");if(history!=null)for(int j=0;j<history.length();j++){JSONObject h=history.optJSONObject(j);if(h==null)continue;long at=h.optLong("at");if(at>=start&&at<end){calendarEvent(events,"完成第 "+h.optInt("stage")+" 轮  "+date(at),task.optString("title"),()->details(id));count++;}}}
         if(count==0)events.addView(text("当天没有计划或完成记录",14,MUTED));
     }
@@ -300,8 +326,12 @@ public class MainActivity extends ScreenActivity {
     private void calendarEvent(LinearLayout parent,String subtitle,String title,Runnable action){LinearLayout line=column();line.setPadding(dp(14),dp(10),dp(14),dp(10));line.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));line.setElevation(0);TextView name=text(title,15,INK);name.setTypeface(null,1);line.addView(name);line.addView(text(subtitle,13,MUTED));line.setMinimumHeight(dp(52));line.setOnClickListener(v->action.run());Motion.press(line);parent.addView(line);gap(parent,8);}
     private void statistics(){
         sectionTitle("复习统计","最近 12 周");int total=0,days=0;long today=dayStart(System.currentTimeMillis());java.util.Map<Long,Integer> counts=new java.util.HashMap<>();JSONArray all=Store.tasks(this);for(int i=0;i<all.length();i++){JSONObject task=all.optJSONObject(i);if(task==null)continue;JSONArray history=task.optJSONArray("history");if(history==null)continue;for(int j=0;j<history.length();j++){JSONObject entry=history.optJSONObject(j);if(entry==null||entry.optLong("at")<=0)continue;long day=dayStart(entry.optLong("at"));Integer old=counts.get(day);counts.put(day,old==null?1:old+1);}}for(int i=0;i<84;i++){Integer n=counts.get(shiftDay(today,-i));if(n!=null){total+=n;days++;}}
-        TextView stat=text("完成 "+total+" 轮     活跃 "+days+" 天",16,INK);stat.setTypeface(null,1);content.addView(stat);gap(content,12);
-        LinearLayout grid=column();for(int row=0;row<7;row++){LinearLayout cells=row();for(int col=0;col<12;col++){final long date=shiftDay(today,-(83-(col*7+row)));Integer value=counts.get(date);int n=value==null?0:value;TextView cell=text("",11,INK);cell.setGravity(Gravity.CENTER);cell.setBackground(shape(n==0?0xFFE8EFEB:n==1?0xFFBFE3D2:n<4?0xFF78BE9B:FOREST,4,0,0));cell.setContentDescription(new SimpleDateFormat("M月d日",Locale.CHINA).format(new Date(date))+" 完成 "+n+" 轮");LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(24),1);p.setMargins(dp(2),dp(2),dp(2),dp(2));cells.addView(cell,p);}grid.addView(cells);}content.addView(grid);gap(content,8);content.addView(text("浅到深表示当天完成轮次由少到多；删除任务也会删除其记录。",12,MUTED));gap(content,22);
+        LinearLayout summary=row();summary.setPadding(dp(Theme.SPACE_20),dp(Theme.SPACE_16),dp(Theme.SPACE_20),dp(Theme.SPACE_16));summary.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));summary.setContentDescription("完成 "+total+" 轮，活跃 "+days+" 天");addStatMetric(summary,String.valueOf(total),"完成轮次");View split=divider();LinearLayout.LayoutParams splitLp=new LinearLayout.LayoutParams(dp(1),dp(44));splitLp.setMargins(dp(Theme.SPACE_20),0,dp(Theme.SPACE_20),0);summary.addView(split,splitLp);addStatMetric(summary,String.valueOf(days),"活跃天数");content.addView(summary);gap(content,Theme.SPACE_16);
+        LinearLayout chart=column();chart.setPadding(dp(Theme.SPACE_12),dp(Theme.SPACE_12),dp(Theme.SPACE_12),dp(Theme.SPACE_12));chart.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));LinearLayout grid=column();for(int row=0;row<7;row++){LinearLayout cells=row();for(int col=0;col<12;col++){final long date=shiftDay(today,-(83-(col*7+row)));Integer value=counts.get(date);int n=value==null?0:value;TextView cell=text("",11,INK);cell.setGravity(Gravity.CENTER);cell.setBackground(shape(n==0?Theme.TRACK:n==1?0xFFBFE3D2:n<4?0xFF78BE9B:FOREST,4,0,0));cell.setContentDescription(new SimpleDateFormat("M月d日",Locale.CHINA).format(new Date(date))+" 完成 "+n+" 轮");LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(22),1);p.setMargins(dp(2),dp(2),dp(2),dp(2));cells.addView(cell,p);}grid.addView(cells);}chart.addView(grid);content.addView(chart);gap(content,Theme.SPACE_8);content.addView(text("浅到深表示当天完成轮次由少到多；删除任务也会删除其记录。",12,MUTED));gap(content,Theme.SPACE_24);
+    }
+    private void addStatMetric(LinearLayout parent,String value,String label){LinearLayout metric=column();TextView number=text(value,28,INK);number.setTypeface(null,1);metric.addView(number);TextView caption=text(label,12,MUTED);LinearLayout.LayoutParams captionLp=new LinearLayout.LayoutParams(-2,-2);captionLp.topMargin=dp(2);metric.addView(caption,captionLp);parent.addView(metric,new LinearLayout.LayoutParams(0,-2,1));}
+    private ProgressBar progressBar(int percent){
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgressTintList(ColorStateList.valueOf(GOLD));bar.setProgressBackgroundTintList(ColorStateList.valueOf(Theme.TRACK));bar.setContentDescription("学习进度 "+percent+"%");bar.post(()->Motion.progress(bar,percent));return bar;
     }
     private void sectionTitle(String label,String trailing) {
         LinearLayout r=row();TextView title=text(label,15,INK);title.setTypeface(null,1);r.addView(title,new LinearLayout.LayoutParams(0,-2,1));r.addView(text(trailing,12,MUTED));content.addView(r);gap(content,Theme.SPACE_8);
@@ -310,7 +340,7 @@ public class MainActivity extends ScreenActivity {
         LinearLayout box=column();box.setGravity(Gravity.CENTER);box.setPadding(dp(Theme.SPACE_20),dp(Theme.SPACE_24),dp(Theme.SPACE_20),dp(Theme.SPACE_24));box.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));
         TextView heading=text(title,16,INK);heading.setTypeface(null,1);heading.setGravity(Gravity.CENTER);box.addView(heading);gap(box,Theme.SPACE_8);
         TextView detail=text(subtitle,Theme.CAPTION_SIZE,MUTED);detail.setGravity(Gravity.CENTER);box.addView(detail);
-        if(action!=null){gap(box,Theme.SPACE_12);box.addView(textAction(action,v->run.run()));}content.addView(box);
+        if(action!=null){gap(box,Theme.SPACE_16);box.addView(button(action,0,v->run.run()));}content.addView(box);
     }
     private void addTask(JSONObject task,boolean completed){addTask(task,completed,!completed);}
     private void addTask(JSONObject task,boolean completed,boolean prominent) {
@@ -332,8 +362,9 @@ public class MainActivity extends ScreenActivity {
         String status=completed?"最后完成  "+date(lastCompleted(task)):overdue?"现在可以开始复习":"计划时间  "+date(due);
         card.addView(text(status,Theme.CAPTION_SIZE,completed?MUTED:overdue?CORAL:FOREST));
         int total=intervals==null?7:intervals.length();int shown=completed?total:Math.min(stage,total);
-        gap(card,Theme.SPACE_4);card.addView(text("进度 "+shown+" / "+total+(hasWords?" · 掌握 "+String.format(java.util.Locale.CHINA,"%.1f",Mastery.average(task.optJSONArray("words")))+"/5":""),12,MUTED));
-        gap(card,Theme.SPACE_12);
+        gap(card,Theme.SPACE_8);card.addView(text("进度 "+shown+" / "+total+(hasWords?" · 掌握 "+String.format(java.util.Locale.CHINA,"%.1f",Mastery.average(task.optJSONArray("words")))+"/5":""),12,MUTED));
+        int progressPercent=total<=0?0:Math.min(100,Math.round(shown*100f/total));gap(card,Theme.SPACE_8);card.addView(progressBar(progressPercent),new LinearLayout.LayoutParams(-1,dp(5)));
+        gap(card,Theme.SPACE_16);
         LinearLayout actions=row();
         if(!completed){
             actions.addView(button(hasWords?"开始复习":"完成复习",0,v->{if(hasWords)Motion.open(this,new Intent(this,ReviewActivity.class).putExtra("taskId",id));else confirmComplete(id);}),new LinearLayout.LayoutParams(0,dp(Theme.BUTTON_HEIGHT),1));
@@ -423,9 +454,9 @@ public class MainActivity extends ScreenActivity {
     }
     private String[] settingNames(){return new String[]{"复习计划","复习与拼写","声音与触感","提醒时段","AI","权限管理"};}
     private void settingsPage(){
-        if(settingsCategory<0){pageHeading("我的","统计与设置");statistics();content.addView(button("错题本",1,v->Motion.open(this,new Intent(this,WrongBookActivity.class))));gap(content,10);content.addView(button("创造力造句",1,v->Motion.open(this,new Intent(this,CreateActivity.class))));gap(content,16);sectionTitle("设置","按类别查看和修改");String[] names=settingNames(),notes={"默认间隔、自定义轮次","卡片显示、拼写偏好","朗读、音效与触感","可用提醒时间","DeepSeek / 小米 MiMo / 自定义","通知和精确提醒授权"};for(int i=0;i<names.length;i++)addSettingsEntry(names[i],notes[i],i);return;}
+        if(settingsCategory<0){pageHeading("我的","统计与设置");statistics();sectionTitle("学习工具","复习与创作");LinearLayout features=column();features.setBackground(shape(SURFACE,Theme.RADIUS_CARD,LINE,1));addListEntry(features,"错题本","集中练习需要巩固的单词",R.drawable.ic_book_open,()->Motion.open(this,new Intent(this,WrongBookActivity.class)));addListEntry(features,"创造力造句","用词卡生成自己的表达",R.drawable.ic_pencil,()->Motion.open(this,new Intent(this,CreateActivity.class)));addListEntry(features,"AI 翻译训练","在语境里练习中英文转换",R.drawable.ic_image_plus,()->Motion.open(this,new Intent(this,PracticeSetupActivity.class).putExtra("translationOnly",true)));addListEntry(features,"数据备份与恢复","导出或恢复学习资料",R.drawable.ic_settings_2,()->Motion.open(this,new Intent(this,BackupActivity.class)));content.addView(features);gap(content,Theme.SPACE_24);sectionTitle("设置","按类别查看和修改");String[] names=settingNames(),notes={"默认间隔、自定义轮次","卡片显示、拼写偏好","朗读、音效与触感","可用提醒时间","DeepSeek / 小米 MiMo / 自定义","通知和精确提醒授权"};for(int i=0;i<names.length;i++)addSettingsEntry(names[i],notes[i],i);return;}
         String name=settingNames()[settingsCategory];
-        LinearLayout back=row();back.setMinimumHeight(dp(44));back.setGravity(Gravity.CENTER_VERTICAL);back.setClickable(true);back.setFocusable(true);
+        LinearLayout back=row();back.setMinimumHeight(dp(48));back.setGravity(Gravity.CENTER_VERTICAL);back.setClickable(true);back.setFocusable(true);
         ImageView backIcon=new ImageView(this);backIcon.setImageResource(R.drawable.ic_arrow_left);backIcon.setImageTintList(ColorStateList.valueOf(FOREST));back.addView(backIcon,new LinearLayout.LayoutParams(dp(20),dp(20)));
         TextView backLabel=text("返回设置目录",15,FOREST);backLabel.setTypeface(null,1);LinearLayout.LayoutParams backLp=new LinearLayout.LayoutParams(-2,-2);backLp.leftMargin=dp(6);back.addView(backLabel,backLp);
         back.setOnClickListener(v->leaveSettingsCategory());Motion.press(back);content.addView(back);gap(content,8);
@@ -471,10 +502,11 @@ public class MainActivity extends ScreenActivity {
         }
         LinearLayout group=(LinearLayout)content.getChildAt(content.getChildCount()-1);
         if(group.getChildCount()>0)group.addView(divider(),new LinearLayout.LayoutParams(-1,dp(1)));
-        LinearLayout item=column();item.setPadding(dp(16),dp(12),dp(16),dp(12));item.setMinimumHeight(dp(56));
-        TextView heading=text(title,16,INK);heading.setTypeface(null,1);item.addView(heading);
-        TextView detail=text(subtitle,12,MUTED);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(2);item.addView(detail,p);
-        item.setOnClickListener(v->openSettingsCategory(category));Motion.press(item);group.addView(item);
+        LinearLayout item=row();item.setPadding(dp(16),dp(12),dp(16),dp(12));item.setMinimumHeight(dp(60));item.setClickable(true);item.setFocusable(true);
+        LinearLayout copy=column();TextView heading=text(title,16,INK);heading.setTypeface(null,1);copy.addView(heading);
+        TextView detail=text(subtitle,12,MUTED);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(2);copy.addView(detail,p);item.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView chevron=new ImageView(this);chevron.setImageResource(R.drawable.ic_arrow_right);chevron.setImageTintList(ColorStateList.valueOf(MUTED));item.addView(chevron,new LinearLayout.LayoutParams(dp(18),dp(18)));
+        item.setContentDescription(title+"，"+subtitle);item.setOnClickListener(v->openSettingsCategory(category));Motion.press(item);group.addView(item);
     }
     private void openSettingsCategory(int category){settingsCategory=category;render();}
     private void leaveSettingsCategory(){if(saveSettings!=null&&!saveSettings.get())return;settingsCategory=-1;render();}
@@ -498,7 +530,7 @@ public class MainActivity extends ScreenActivity {
         saveSettings=()->{boolean selectedExplicitly=spelling.getSelectedItemPosition()!=initialSpelling;boolean ok=prefs.edit().putInt("reviewMode",mode.getSelectedItemPosition()).putBoolean("shuffleWords",shuffle.isChecked()).putBoolean("motion",motion.isChecked()).putInt("spellingMode",spelling.getSelectedItemPosition()).putBoolean("spellingConfigured",wasConfigured||selectedExplicitly).putBoolean("askSpellingMode",askAgain.isChecked()).putBoolean("spellForgottenWords",forgottenSpelling.isChecked()).putBoolean("addExamplesForForgotten",forgottenExamples.isChecked()).commit();if(!ok)toast("设置未能保存");return ok;};
     }
     private void soundSettings(){
-        sectionTitle("单词朗读","");Switch autoSpeak=settingSwitch("揭晓答案时自动朗读单词和例句","autoSpeak",true);content.addView(textAction("朗读声音与语速",v->SpeechSettings.show(this)));sectionTitle("交互反馈","");Switch feedbackSound=settingSwitch("复习确认音效","feedbackSound",true);LinearLayout previews=row();previews.addView(textAction("试听：记得",v->interaction.preview(this,Feedback.KNOWN)));previews.addView(textAction("试听：忘记了",v->interaction.preview(this,Feedback.RETRY)));content.addView(previews);Switch haptic=settingSwitch("卡片交互触感","haptic",true);Switch reminderSound=settingSwitch("到期通知使用声音","reminderSound",true);content.addView(text("到期通知使用系统通知声音，仍受系统静音与勿扰设置影响。",12,MUTED));
+        sectionTitle("单词朗读","");Switch autoSpeak=settingSwitch("揭晓答案时自动朗读单词和例句","autoSpeak",true);content.addView(textAction("朗读声音与语速",v->Motion.open(this,new Intent(this,VoiceSettingsActivity.class))));sectionTitle("交互反馈","");Switch feedbackSound=settingSwitch("复习确认音效","feedbackSound",true);LinearLayout previews=row();previews.addView(textAction("试听：记得",v->interaction.preview(this,Feedback.KNOWN)));previews.addView(textAction("试听：忘记了",v->interaction.preview(this,Feedback.RETRY)));content.addView(previews);Switch haptic=settingSwitch("卡片交互触感","haptic",true);Switch reminderSound=settingSwitch("到期通知使用声音","reminderSound",true);content.addView(text("到期通知使用系统通知声音，仍受系统静音与勿扰设置影响。",12,MUTED));
         saveSettings=()->{boolean ok=Store.prefs(this).edit().putBoolean("autoSpeak",autoSpeak.isChecked()).putBoolean("feedbackSound",feedbackSound.isChecked()).putBoolean("haptic",haptic.isChecked()).putBoolean("reminderSound",reminderSound.isChecked()).commit();if(!ok){toast("设置未能保存");return false;}Notifications.ensureChannel(this);return true;};
     }
     private void windowSettings(){

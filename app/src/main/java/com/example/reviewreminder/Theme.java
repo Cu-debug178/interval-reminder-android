@@ -20,12 +20,14 @@ final class Theme {
     static final int BORDER=0xFFE5EAE6;
     static final int WARN=0xFF855111;
     static final int WARN_SOFT=0xFFFFF2D8;
+    static final int ACCENT=0xFFB9822F;
+    static final int TRACK=0xFFE9EEEA;
 
     static final int SPACE_4=4,SPACE_8=8,SPACE_12=12,SPACE_16=16,SPACE_20=20,SPACE_24=24,SPACE_32=32;
     static final int PAGE_PAD=20;
     static final int RADIUS_CARD=16,RADIUS_BUTTON=13,RADIUS_CHIP=12;
     static final int BUTTON_HEIGHT=50;
-    static final int TITLE_SIZE=26,BODY_SIZE=15,CAPTION_SIZE=13;
+    static final int TITLE_SIZE=28,BODY_SIZE=15,CAPTION_SIZE=13;
 
     static final int PRESS_MS=140;
     static final int ENTER_MS=200;
@@ -49,7 +51,7 @@ final class Theme {
     }
 
     static void applyRipple(View v,android.graphics.drawable.Drawable background){
-        android.graphics.drawable.Drawable base=background==null?new android.graphics.drawable.ColorDrawable(SURFACE):background;
+        android.graphics.drawable.Drawable base=background==null?new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT):background;
         android.graphics.drawable.Drawable mask=base.getConstantState()==null
             ?new android.graphics.drawable.ColorDrawable(Color.WHITE)
             :base.getConstantState().newDrawable().mutate();

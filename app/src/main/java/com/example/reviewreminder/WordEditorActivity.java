@@ -2,6 +2,8 @@ package com.example.reviewreminder;
 
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -9,13 +11,16 @@ import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public final class WordEditorActivity extends ScreenActivity {
-    private WordUi ui;private JSONObject document;private JSONArray words;private int index;private long taskId;private EditText english,chinese,example,title;private boolean committed,changing,quickReview,editingIssue;private int direction;private Future<?> pending;
+    private WordUi ui;private JSONObject document;private JSONArray words;private int index;private long taskId;private EditText english,chinese,example,title;private boolean committed,changing,quickReview,editingIssue,importingImage;private int direction;private Future<?> pending;private final ExecutorService imageWorker=Executors.newSingleThreadExecutor();
+private static final int PICK_CONNECTION_IMAGE=20,DRAW_CONNECTION_IMAGE=21;
     @Override public void onCreate(Bundle state){super.onCreate(state);ui=new WordUi(this);taskId=getIntent().getLongExtra("taskId",0);quickReview=getIntent().getBooleanExtra("quickReview",false);index=state==null?0:state.getInt("index");editingIssue=state!=null&&state.getBoolean("editingIssue");try{document=taskId==0?Words.draft(this):Store.find(Store.tasks(this),taskId);if(document==null)throw new Exception("任务已不存在");words=document.optJSONArray("words");if(words==null)words=new JSONArray();if(words.length()==0)words.put(new JSONObject().put("english","").put("chinese","").put("example",""));document.put("words",words);show();}catch(Exception e){ui.toast(e.getMessage());finish();}}
     @Override protected void onSaveInstanceState(Bundle out){save(false);out.putInt("index",index);out.putBoolean("editingIssue",editingIssue);super.onSaveInstanceState(out);}
-    @Override protected void onDestroy(){AiClient.cancel(pending);super.onDestroy();}
+    @Override protected void onDestroy(){AiClient.cancel(pending);imageWorker.shutdownNow();super.onDestroy();}
     private void show(){
         index=Math.max(0,Math.min(index,words.length()-1));
         if(taskId==0&&quickReview&&!editingIssue){showQuickCard();return;}
@@ -39,7 +44,8 @@ public final class WordEditorActivity extends ScreenActivity {
         example=ui.field("例句（可留空）",word.optString("example"),2);
         LinearLayout exampleRow=ui.row();exampleRow.setGravity(Gravity.END);
         exampleRow.addView(ui.textButton("AI 生成例句",v->aiExample()));
-        ui.body.addView(exampleRow);ui.gap(ui.body,16);
+        ui.body.addView(exampleRow);ui.gap(ui.body,12);
+        showConnection(word);ui.gap(ui.body,12);
         String saveLabel=taskId==0?(quickReview?"保存并返回确认":"保存词组并开始计划"):"保存修改";
         ui.body.addView(ui.button(saveLabel,true,v->{if(!save(true))return;if(taskId==0&&quickReview){editingIssue=false;clearFields();show();}else if(taskId==0)finishProof();else{ui.toast("单词卡已保存");finish();}}));ui.gap(ui.body,4);
         ui.body.addView(ui.textButton("更多操作",v->moreActions()));Motion.enter(ui.body,direction);direction=0;
@@ -62,6 +68,7 @@ public final class WordEditorActivity extends ScreenActivity {
         TextView chineseCard=ui.text(word.optString("chinese",""),21,WordUi.GREEN);chineseCard.setGravity(Gravity.CENTER);card.addView(chineseCard,new LinearLayout.LayoutParams(-1,-2));
         String exampleText=word.optString("example","").trim();if(!exampleText.isEmpty()){TextView exampleCard=ui.text(exampleText,15,WordUi.INK);exampleCard.setGravity(Gravity.CENTER);LinearLayout.LayoutParams exampleLp=new LinearLayout.LayoutParams(-1,-2);exampleLp.topMargin=ui.dp(12);card.addView(exampleCard,exampleLp);}
         ui.body.addView(card,new LinearLayout.LayoutParams(-1,-2));ui.gap(ui.body,24);
+        String connection=word.optString("connectionImage");final JSONObject shown=word;if(ConnectionImages.exists(this,connection)){ui.body.addView(ui.secondaryButton("查看连接图",v->openConnection(shown)));ui.gap(ui.body,12);}
         ui.body.addView(ui.button("有问题，修改",false,v->{editingIssue=true;show();}));ui.gap(ui.body,10);
         boolean last=index==words.length()-1;
         ui.body.addView(ui.button(last?"没问题，完成校对":"没问题，下一张",true,v->confirmCurrent()));
@@ -106,6 +113,50 @@ public final class WordEditorActivity extends ScreenActivity {
                 }).show();
         }catch(Exception e){ui.toast(e.getMessage());}
     }
+    private void showConnection(JSONObject word){
+        ui.body.addView(ui.sectionLabel("连接图 · 可选"));
+        String path=word.optString("connectionImage");boolean present=ConnectionImages.exists(this,path);
+        if(present){
+            ImageView preview=new ImageView(this);preview.setScaleType(ImageView.ScaleType.CENTER_CROP);preview.setContentDescription("查看连接图");
+            try{Bitmap value=ConnectionImages.decode(this,path,1200);preview.setImageBitmap(value);}catch(Exception e){present=false;preview.setImageDrawable(null);}
+            if(present){preview.setBackground(Theme.shape(this,Theme.SURFACE,Theme.RADIUS_CARD,Theme.BORDER,1));preview.setClipToOutline(true);preview.setOnClickListener(v->openConnection(word));Motion.press(preview);ui.body.addView(preview,new LinearLayout.LayoutParams(-1,ui.dp(150)));ui.body.addView(ui.text("点击图片可全屏缩放查看",12,WordUi.MUTED));ui.gap(ui.body,8);}
+        }
+        if(!present)ui.body.addView(ui.text(path.isEmpty()?"没有连接图；复习卡不会显示空白图片区域。":"原连接图已丢失，可重新添加或绘制。",12,path.isEmpty()?WordUi.MUTED:Theme.WARN));
+        LinearLayout actions=ui.row();
+        actions.addView(ui.ghostButton(present?"更换图片":"添加图片",v->pickConnectionImage()),new LinearLayout.LayoutParams(0,ui.dp(48),1));
+        LinearLayout.LayoutParams drawLp=new LinearLayout.LayoutParams(0,ui.dp(48),1);drawLp.leftMargin=ui.dp(8);actions.addView(ui.ghostButton("手绘",v->drawConnection()),drawLp);ui.body.addView(actions);
+        if(present){ui.gap(ui.body,4);ui.body.addView(ui.dangerTextButton("删除连接图",v->deleteConnection(word)));}
+    }
+    private void pickConnectionImage(){
+        if(importingImage||!save(true))return;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
+        try{startActivityForResult(intent,PICK_CONNECTION_IMAGE);}catch(Exception e){ui.toast("没有可用的图片选择器");}
+    }
+    private void drawConnection(){
+        if(importingImage||!save(true))return;
+        try{startActivityForResult(new Intent(this,DrawingActivity.class),DRAW_CONNECTION_IMAGE);}catch(Exception e){ui.toast("无法打开手绘页");}
+    }
+    private void deleteConnection(JSONObject word){
+        new AlertDialog.Builder(this).setTitle("删除连接图？").setMessage("仅删除这张图片，不影响单词和复习记录。").setNegativeButton("保留",null).setPositiveButton("删除",(d,w)->{
+            String path=word.optString("connectionImage");ConnectionImages.delete(this,path);try{word.put("connectionImage","");persistWords();show();ui.toast("连接图已删除");}catch(Exception e){ui.toast(e.getMessage());}
+        }).show();
+    }
+    private void openConnection(JSONObject word){if(!ConnectionImages.exists(this,word.optString("connectionImage"))){ui.toast("连接图已丢失");return;}Intent intent=new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english"));Motion.open(this,intent);}
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);if(result!=RESULT_OK)return;
+        if(request==DRAW_CONNECTION_IMAGE&&data!=null){String path=data.getStringExtra("path");if(path!=null)applyConnection(path);}
+        else if(request==PICK_CONNECTION_IMAGE&&data!=null&&data.getData()!=null)loadConnection(data.getData());
+    }
+    private void loadConnection(Uri uri){
+        if(importingImage)return;JSONObject target=words.optJSONObject(index);if(target==null){ui.toast("当前单词卡已变化，请重试");return;}importingImage=true;
+        final int expected=index;ui.toast("正在处理连接图…");
+        imageWorker.execute(()->{
+            try{String path=ConnectionImages.importUri(getApplicationContext(),uri);runOnUiThread(()->{if(isFinishing()||isDestroyed())return;importingImage=false;try{target.put("connectionImage",path);persistWords();if(index==expected)show();ui.toast("连接图已保存");}catch(Exception e){ui.toast(e.getMessage());}});}
+            catch(Exception e){runOnUiThread(()->{if(isFinishing()||isDestroyed())return;importingImage=false;ui.toast("图片保存失败："+e.getMessage());});}
+        });
+    }
+    private void applyConnection(String path){JSONObject word=words.optJSONObject(index);if(word==null)return;try{word.put("connectionImage",path);persistWords();show();ui.toast("连接图已保存");}catch(Exception e){ui.toast(e.getMessage());}}
+    private void persistWords()throws Exception{document.put("words",words);if(taskId==0)Words.writeDraft(this,document);else{JSONArray all=Store.tasks(this);JSONObject current=Store.find(all,taskId);if(current==null)throw new Exception("任务已删除");current.put("words",words);Store.save(this,all);}}
     private void aiExample(){
         if(!AiSettings.ready(this)){ui.toast(AiSettings.notReadyMessage(this));return;}
         if(!save(true))return;
@@ -140,7 +191,7 @@ public final class WordEditorActivity extends ScreenActivity {
         }).show();
     }
     private void clearFields(){english=null;chinese=null;example=null;title=null;}
-    private boolean save(boolean report){if(document==null||english==null||committed)return true;if(taskId!=0&&english.getText().toString().trim().isEmpty()){if(report)english.setError("英文不能为空");return false;}try{JSONObject word=words.getJSONObject(index);String nextChinese=chinese.getText().toString().trim();String prevChinese=word.optString("chinese","");word.put("english",english.getText().toString().trim()).put("chinese",nextChinese).put("example",example.getText().toString().trim());
+    private boolean save(boolean report){if(document==null||english==null||committed)return true;if(taskId!=0&&english.getText().toString().trim().isEmpty()){if(report)english.setError("英文不能为空");return false;}try{JSONObject word=words.getJSONObject(index);Words.stableId(word);String nextChinese=chinese.getText().toString().trim();String prevChinese=word.optString("chinese","");word.put("english",english.getText().toString().trim()).put("chinese",nextChinese).put("example",example.getText().toString().trim());
         if(!nextChinese.equals(prevChinese)||word.optJSONArray("senses")==null||word.optJSONArray("senses").length()==0)word.put("senses",Senses.migrate(word));
         else Senses.ensure(word);
         if(title!=null)document.put("title",title.getText().toString().trim());document.put("words",words);

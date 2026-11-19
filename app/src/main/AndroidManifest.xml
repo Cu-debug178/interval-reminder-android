@@ -16,6 +16,14 @@
         <activity android:name=".WrongBookActivity" android:exported="false"/>
         <activity android:name=".CreateActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".SenseQuizActivity" android:exported="false"/>
+        <activity android:name=".VoiceSettingsActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".PracticeSetupActivity" android:exported="false"/>
+        <activity android:name=".PlansActivity" android:exported="false"/>
+        <activity android:name=".PlanDetailActivity" android:exported="false"/>
+        <activity android:name=".TranslationActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".ConnectionImageActivity" android:exported="false"/>
+        <activity android:name=".DrawingActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".BackupActivity" android:exported="false"/>
         <provider android:name=".PhotoProvider" android:authorities="com.example.reviewreminder.photos" android:exported="false" android:grantUriPermissions="true"/>
         <receiver android:name=".ReminderReceiver" android:exported="false" />
         <receiver android:name=".RestoreReceiver" android:exported="true">

@@ -2,6 +2,7 @@ import com.example.reviewreminder.IntervalPlan;
 import com.example.reviewreminder.WordParser;
 import com.example.reviewreminder.ReviewSession;
 import com.example.reviewreminder.SpellingPlan;
+import com.example.reviewreminder.SpellingSession;
 import java.util.*;
 import java.nio.file.*;
 
@@ -34,6 +35,32 @@ public final class CoreTest {
         ReviewSession repeatMiss=new ReviewSession(1,false,1);repeatMiss.answer(false);repeatMiss.answer(false);repeatMiss.answer(true);check(Arrays.equals(repeatMiss.missedIndices(),new int[]{0}),"repeated misses retain one wrong-book index");
         ReviewSession known=new ReviewSession(42,true,7);Set<Integer> seen=new HashSet<>();while(!known.ended()){seen.add(known.current());known.answer(true);}check(seen.size()==42&&known.total()==42&&known.remembered()==42,"all cards once");
         ReviewSession a=new ReviewSession(8,true,55),b=new ReviewSession(8,true,55);for(int i=0;i<8;i++){check(a.current()==b.current(),"repeatable shuffle");a.answer(true);b.answer(true);}
+
+        List<SpellingSession.Item> ordinary=Arrays.asList(new SpellingSession.Item("a",0),new SpellingSession.Item("b",0));
+        SpellingSession spelling=new SpellingSession(ordinary,false);
+        check(spelling.current().equals("a")&&spelling.initialTotal()==2,"ordinary queue starts with every word");
+        check(spelling.submit("a",true,false).independent&&!spelling.ended(),"first independent word completes but session continues");
+        check(!spelling.submit("a",true,false).accepted,"duplicate submit cannot count twice");
+        check(spelling.current().equals("b"),"next unfinished word");
+        spelling.submit("b",false,false);check(spelling.current().equals("b")&&!spelling.ended(),"single wrong word is requeued");
+        spelling.submit("b",true,true);check(!spelling.ended()&&spelling.currentStreak("b")==0,"assisted correct never completes ordinary word");
+        spelling.submit("b",true,false);check(spelling.ended()&&spelling.finishedCount()==2,"all ordinary words require independent success");
+
+        SpellingSession wrong=new SpellingSession(Collections.singletonList(new SpellingSession.Item("w",0)),true);
+        wrong.submit("w",true,true);check(wrong.currentStreak("w")==0&&!wrong.ended(),"hint resets wrong-word streak");
+        wrong.submit("w",true,false);check(wrong.currentStreak("w")==1&&!wrong.ended(),"wrong word learning after one independent correct");
+        SpellingSession restored=SpellingSession.restore(wrong.snapshot());
+        check(restored.current().equals("w")&&restored.currentStreak("w")==1,"snapshot restores queue and streak");
+        restored.submit("w",true,false);check(restored.ended()&&restored.currentStreak("w")==2,"two independent correct answers master wrong word");
+
+        SpellingSession existing=new SpellingSession(Collections.singletonList(new SpellingSession.Item("w",1)),true);
+        existing.skip("w");check(existing.currentStreak("w")==0&&!existing.ended(),"skip clears streak and retains word");
+        existing.submit("w",true,false);existing.submit("w",true,false);check(existing.ended(),"existing evidence can be reused after a fresh two-streak");
+        SpellingSession mastered=new SpellingSession(Collections.singletonList(new SpellingSession.Item("m",2)),true);
+        check(mastered.ended()&&mastered.initialTotal()==0,"already mastered words need no additional work");
+        List<SpellingSession.Item> tenItems=new ArrayList<>();for(int i=0;i<10;i++)tenItems.add(new SpellingSession.Item("id"+i,0));SpellingSession ten=new SpellingSession(tenItems,false);for(int i=0;i<9;i++)ten.submit("id"+i,true,false);check(!ten.ended()&&ten.finishedCount()==9,"T01 nine of ten independent words cannot finish");ten.submit("id9",true,false);check(ten.ended(),"T01 tenth independent word finishes session");
+        SpellingSession spacing=new SpellingSession(ordinary,false);spacing.submit("a",false,false);check(spacing.current().equals("b"),"wrong word reappears after another word when possible");
+        try{SpellingSession.restore("broken");throw new AssertionError("accepted broken spelling snapshot");}catch(IllegalArgumentException expected){checks++;}
         System.out.println("CoreTest: "+checks+" checks passed");
     }
 }

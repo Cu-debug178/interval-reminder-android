@@ -1,3 +1,6 @@
+/* Legacy pre-0.6 UI smoke test, kept for historical reference.
+   It targets removed fields and old practice behaviour, so it is not registered
+   in tests/native/AndroidManifest.xml. Use P2SmokeTest for current device QA. */
 package com.example.reviewreminder;
 
 import android.app.Activity;

@@ -103,25 +103,39 @@ final class AiClient {
     }
 
     static JSONObject extractJson(String content)throws Exception{
-        String text=content==null?"":content.trim();
+        String original=content==null?"":content.trim(),text=original;
         if(text.startsWith("```")){
             int start=text.indexOf('\n');
+            if(start>=0)text=text.substring(start+1);
             int end=text.lastIndexOf("```");
-            if(start>=0&&end>start)text=text.substring(start+1,end).trim();
+            if(end>=0)text=text.substring(0,end);
+            text=text.trim();
         }
-        int obj=text.indexOf('{'), arr=text.indexOf('[');
-        int begin=obj<0?arr:arr<0?obj:Math.min(obj,arr);
-        if(begin>0)text=text.substring(begin);
-        if(text.startsWith("[")){
-            try{return new JSONObject().put("items",new JSONArray(text));}
-            catch(Exception e){return new JSONObject().put("ok",true).put("message",content.trim());}
+        int begin=firstJsonStart(text);
+        if(begin>=0){
+            String candidate=jsonSlice(text,begin);
+            if(candidate!=null){
+                try{
+                    if(candidate.startsWith("["))return new JSONObject().put("items",new JSONArray(candidate));
+                    return new JSONObject(candidate);
+                }catch(Exception ignored){}
+            }
         }
-        if(text.startsWith("{")){
-            try{return new JSONObject(text);}
-            catch(Exception e){return new JSONObject().put("ok",true).put("message",content.trim());}
+        return new JSONObject().put("ok",true).put("message",original.isEmpty()?"":original);
+    }
+    private static int firstJsonStart(String text){int object=text.indexOf('{'),array=text.indexOf('[');return object<0?array:array<0?object:Math.min(object,array);}
+    private static String jsonSlice(String text,int begin){
+        if(begin<0||begin>=text.length())return null;
+        char open=text.charAt(begin);if(open!='{'&&open!='[')return null;
+        char close=open=='{'?'}':']';int depth=0;boolean inString=false,escaped=false;
+        for(int i=begin;i<text.length();i++){
+            char ch=text.charAt(i);
+            if(inString){if(escaped)escaped=false;else if(ch=='\\')escaped=true;else if(ch=='"')inString=false;continue;}
+            if(ch=='"'){inString=true;continue;}
+            if(ch==open)depth++;
+            else if(ch==close){depth--;if(depth==0)return text.substring(begin,i+1);}
         }
-        // Some models (esp. brief pings) ignore JSON-only instructions.
-        return new JSONObject().put("ok",true).put("message",text);
+        return null;
     }
 
     private static String read(InputStream in)throws IOException{

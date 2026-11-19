@@ -4,12 +4,23 @@ import android.content.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.*;
+import java.security.MessageDigest;
 import java.util.List;
+import java.util.Locale;
 
 public final class Words {
     private Words() {}
     public static JSONArray array(List<WordParser.Entry> entries) throws Exception {
-        JSONArray out=new JSONArray();for(WordParser.Entry e:entries)out.put(new JSONObject().put("english",e.english).put("chinese",e.chinese).put("example",e.example));return out;
+        JSONArray out=new JSONArray();for(WordParser.Entry e:entries){JSONObject word=new JSONObject().put("english",e.english).put("chinese",e.chinese).put("example",e.example);word.put("wordId",stableId(word));out.put(word);}return out;
+    }
+    /** Stable across plans while keeping different meanings as separate records. */
+    public static String stableId(JSONObject word){
+        if(word==null)return "";
+        String saved=word.optString("wordId","").trim();if(!saved.isEmpty())return saved;
+        String source=word.optString("english","").trim().toLowerCase(Locale.US)+"\n"+word.optString("chinese","").trim();
+        try{
+            MessageDigest digest=MessageDigest.getInstance("SHA-256");byte[] hash=digest.digest(source.getBytes("UTF-8"));StringBuilder id=new StringBuilder("w_");for(int i=0;i<12;i++)id.append(String.format(Locale.US,"%02x",hash[i]));word.put("wordId",id.toString());return id.toString();
+        }catch(Exception e){String fallback="w_"+Integer.toHexString(source.hashCode());try{word.put("wordId",fallback);}catch(Exception ignored){}return fallback;}
     }
     public static String read(InputStream in) throws IOException {
         try(InputStream source=in;ByteArrayOutputStream out=new ByteArrayOutputStream()) {byte[] b=new byte[8192];int n;while((n=source.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}

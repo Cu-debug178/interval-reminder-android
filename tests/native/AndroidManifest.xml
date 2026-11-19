@@ -17,5 +17,5 @@
         <provider android:name="com.example.reviewreminder.PhotoProvider" android:authorities="com.example.reviewreminder.qa.photos" android:exported="false" android:grantUriPermissions="true"/>
         <receiver android:name="com.example.reviewreminder.ReminderReceiver" android:exported="false"/>
     </application>
-    <instrumentation android:name="com.example.reviewreminder.NativeSmokeTest" android:targetPackage="com.example.reviewreminder.qa"/>
+    <instrumentation android:name="com.example.reviewreminder.P2SmokeTest" android:targetPackage="com.example.reviewreminder.qa"/>
 </manifest>
