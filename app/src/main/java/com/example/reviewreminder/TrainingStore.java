@@ -19,6 +19,18 @@ final class TrainingStore {
         return id;
     }
 
+    /** Writes an edited card back into a saved selection so rotation reloads the new text. */
+    static void updateWord(Context c,String selectionId,JSONObject word)throws Exception{
+        if(selectionId==null||word==null)return;
+        JSONObject all=selections(c);JSONObject selection=all.optJSONObject(selectionId);if(selection==null)return;
+        JSONArray words=selection.optJSONArray("words");if(words==null)return;
+        String id=Words.stableId(word);int index=Words.locate(words,word.optInt("_wordIndex",-1),id);
+        if(index<0)return;
+        JSONObject saved=words.getJSONObject(index);
+        saved.put("english",word.optString("english")).put("chinese",word.optString("chinese")).put("example",word.optString("example")).put("wordId",id);
+        if(!Store.prefs(c).edit().putString(SELECTIONS,all.toString()).commit())throw new IllegalStateException("训练选词未能保存");
+    }
+
     static JSONObject selection(Context c,String id){
         if(id==null)return null;
         return selections(c).optJSONObject(id);

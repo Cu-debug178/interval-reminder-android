@@ -586,6 +586,7 @@ public final class ReviewActivity extends ScreenActivity {
                         .put("example",ex.getText().toString().trim());
                     word.put("english",target.optString("english")).put("chinese",target.optString("chinese")).put("example",target.optString("example")).put("wordId",Words.stableId(target));
                     Store.save(this,all);
+                    if(selectionId!=null)TrainingStore.updateWord(this,selectionId,word);
                 }catch(Exception e){
                     restore(word,"english",oldEnglish);
                     restore(word,"chinese",oldChinese);

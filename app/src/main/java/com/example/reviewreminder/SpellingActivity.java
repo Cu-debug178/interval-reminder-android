@@ -48,7 +48,7 @@ public final class SpellingActivity extends ScreenActivity {
     private EditText answerInput;
     private String draft = "", draftWordId = "";
 
-    private LinearLayout head;
+    private LinearLayout head, hintTools;
     private TextView counter, tally, hintLabel;
     private ProgressLine progress;
     private LinearLayout stage;
@@ -195,6 +195,10 @@ public final class SpellingActivity extends ScreenActivity {
         }
         String wordId = session.current();
         JSONObject word = find(wordId);
+        if (!wordId.equals(draftWordId)) {
+            draft = "";
+            hintUsed = false;
+        }
         draftWordId = wordId;
         answered = false;
         answerWasCorrect = false;
@@ -278,6 +282,7 @@ public final class SpellingActivity extends ScreenActivity {
         stage.addView(verdict, ui.lpMargin(Theme.SPACE_20, 0));
 
         LinearLayout tools = ui.row();
+        hintTools = tools;
         tools.setGravity(Gravity.CENTER);
         tools.addView(ui.textButton(hintUsed ? "再听一次" : "读音提示", v -> useHint(word)));
         tools.addView(ui.textButton("查看答案", v -> { if (!answered) reveal(word); }));
@@ -291,6 +296,7 @@ public final class SpellingActivity extends ScreenActivity {
     }
 
     private void useHint(JSONObject word) {
+        if (answered || word == null) return;
         hintUsed = true;
         draftWordId = Words.stableId(word);
         saveProgress();
@@ -386,6 +392,7 @@ public final class SpellingActivity extends ScreenActivity {
         boolean correct = outcome != null && outcome.correct;
         boolean assisted = outcome != null && outcome.correct && !outcome.independent;
         if (animate) Motion.layout(stage);
+        if (hintTools != null) hintTools.setVisibility(View.GONE);
         hideKeyboard(answerInput);
         answerInput.clearFocus();
         answerInput.setEnabled(false);

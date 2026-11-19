@@ -17,15 +17,16 @@ final class DrawingView extends View {
     private final List<Path> strokes=new ArrayList<>();
     private final List<Integer> colors=new ArrayList<>();
     private Path current;
-    DrawingView(Context context){super(context);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(Theme.dp(context,5));paint.setColor(Theme.INK);setBackgroundColor(Color.WHITE);setContentDescription("连接图手绘区域");}
-    void setInk(int color){paint.setColor(color);}
+    private int ink=Theme.INK;
+    DrawingView(Context context){super(context);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(Theme.dp(context,5));paint.setColor(ink);setBackgroundColor(Color.WHITE);setContentDescription("连接图手绘区域");}
+    void setInk(int color){ink=color;paint.setColor(color);}
     boolean hasStrokes(){return !strokes.isEmpty()||current!=null;}
     void undo(){if(strokes.isEmpty())return;strokes.remove(strokes.size()-1);colors.remove(colors.size()-1);invalidate();}
     void clear(){strokes.clear();colors.clear();current=null;invalidate();}
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);
         for(int i=0;i<strokes.size();i++){paint.setColor(colors.get(i));canvas.drawPath(strokes.get(i),paint);}
-        if(current!=null){paint.setColor(colors.isEmpty()?Theme.INK:colors.get(colors.size()-1));canvas.drawPath(current,paint);}
+        if(current!=null){paint.setColor(ink);canvas.drawPath(current,paint);}
     }
     @Override public boolean onTouchEvent(MotionEvent event){
         if(!isEnabled())return false;
@@ -36,7 +37,7 @@ final class DrawingView extends View {
                 if(current!=null){current.lineTo(event.getX(),event.getY());invalidate();}return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                if(current!=null){strokes.add(current);colors.add(paint.getColor());current=null;performClick();invalidate();}return true;
+                if(current!=null){strokes.add(current);colors.add(ink);current=null;performClick();invalidate();}return true;
             default:return super.onTouchEvent(event);
         }
     }

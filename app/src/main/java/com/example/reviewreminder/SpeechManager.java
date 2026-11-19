@@ -23,7 +23,7 @@ final class SpeechManager {
     private static final long CACHE_LIMIT=64*1024*1024;
     private final Context app;
     private TextToSpeech tts;private MediaPlayer player;private Future<?> pending;
-    private boolean ttsReady,active=true;private int generation;private String pendingText,currentText;private int pendingGeneration;
+    private boolean ttsReady,ttsStarting,active=true;private int generation;private String pendingText,currentText;private int pendingGeneration;
 
     SpeechManager(Context context){app=context.getApplicationContext();}
 
@@ -45,13 +45,17 @@ final class SpeechManager {
     private void systemSpeak(String text,int ticket){
         if(!valid(ticket))return;
         if(ttsReady&&tts!=null){tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"learning-"+ticket);return;}
-        if(tts!=null){toast("英文朗读尚未就绪或当前设备不可用");return;}
         pendingText=text;pendingGeneration=ticket;
-        if(tts==null)tts=new TextToSpeech(app,status->MAIN.post(()->{
-            if(!active||tts==null)return;
-            ttsReady=status==TextToSpeech.SUCCESS&&SpeechSettings.configure(tts,VoiceStore.SYSTEM.equals(VoiceStore.provider(app))?Store.prefs(app).getString("speechVoice",""):"",Store.prefs(app).getInt("speechRate",2));
-            if(ttsReady&&pendingGeneration==generation&&pendingText!=null){String value=pendingText;pendingText=null;tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"learning-"+generation);}else if(!ttsReady&&pendingGeneration==generation)toast("设备的英文朗读不可用");
-        }));
+        if(tts==null){
+            ttsStarting=true;
+            tts=new TextToSpeech(app,status->MAIN.post(()->{
+                ttsStarting=false;
+                if(!active||tts==null)return;
+                ttsReady=status==TextToSpeech.SUCCESS&&SpeechSettings.configure(tts,VoiceStore.SYSTEM.equals(VoiceStore.provider(app))?Store.prefs(app).getString("speechVoice",""):"",Store.prefs(app).getInt("speechRate",2));
+                if(ttsReady&&pendingGeneration==generation&&pendingText!=null){String value=pendingText;pendingText=null;tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"learning-"+generation);}
+                else if(!ttsReady&&pendingGeneration==generation)toast("设备的英文朗读不可用");
+            }));
+        }else if(!ttsStarting)toast("英文朗读尚未就绪或当前设备不可用");
     }
 
     private void playFile(File file,int ticket){

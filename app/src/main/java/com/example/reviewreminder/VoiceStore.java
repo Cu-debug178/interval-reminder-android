@@ -13,6 +13,8 @@ import java.util.UUID;
 
 final class VoiceStore {
     static final String SYSTEM="system",MIMO="mimo";
+    /** Built-in MiMo English voices. They are not stored as cloned profiles. */
+    private static final String[] PRESETS={"Mia","Chloe","Milo","Dean"};
     static final int MAX_BASE64_BYTES=10*1024*1024;
     private VoiceStore(){}
 
@@ -20,6 +22,7 @@ final class VoiceStore {
     static JSONObject profile(Context c,String id){JSONArray all=profiles(c);for(int i=0;i<all.length();i++){JSONObject p=all.optJSONObject(i);if(p!=null&&p.optString("id").equals(id))return p;}return null;}
     static String provider(Context c){return Store.prefs(c).getString("voiceProvider",SYSTEM);}
     static String voiceId(Context c){return Store.prefs(c).getString("voiceId","");}
+    static boolean preset(String voiceId){if(voiceId==null)return false;for(String name:PRESETS)if(name.equals(voiceId))return true;return false;}
     static String baseUrl(Context c){String value=Store.prefs(c).getString("mimoSpeechBase",AiSettings.MIMO_URL).trim();return value.isEmpty()?AiSettings.MIMO_URL:value;}
     static String model(Context c){String value=Store.prefs(c).getString("mimoSpeechModel","mimo-v2.5-tts").trim();return value.isEmpty()?"mimo-v2.5-tts":value;}
     static String speechKey(Context c){
