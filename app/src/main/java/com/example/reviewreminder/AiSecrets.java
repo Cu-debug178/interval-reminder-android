@@ -19,6 +19,7 @@ final class AiSecrets {
     private static final String PREF="ai_secrets";
     private static final String KEY_ALIAS="interval_reminder_ai_key";
     private static final String ENC_KEY="apiKeyEnc";
+    private static final String VOICE_ENC_KEY="voiceApiKeyEnc";
     private static final String PLAIN_LEGACY="aiApiKey";
 
     private AiSecrets() {}
@@ -61,6 +62,22 @@ final class AiSecrets {
         if(configId==null||configId.isEmpty()){deleteLegacy(c);return;}
         secrets(c).edit().remove(slot(configId)).commit();
     }
+
+    static String readVoiceApiKey(Context c){
+        String enc=secrets(c).getString(VOICE_ENC_KEY,"").trim();
+        if(enc.isEmpty())return "";
+        try{return decrypt(enc);}catch(Exception ignored){return "";}
+    }
+
+    static void writeVoiceApiKey(Context c,String key)throws Exception{
+        SharedPreferences.Editor edit=secrets(c).edit();
+        String value=key==null?"":key.trim();
+        if(value.isEmpty())edit.remove(VOICE_ENC_KEY);
+        else edit.putString(VOICE_ENC_KEY,encrypt(value));
+        if(!edit.commit())throw new IllegalStateException("无法安全保存语音 Key");
+    }
+
+    static void clearVoice(Context c){secrets(c).edit().remove(VOICE_ENC_KEY).apply();}
 
     static void deleteLegacy(Context c){
         secrets(c).edit().remove(ENC_KEY).commit();

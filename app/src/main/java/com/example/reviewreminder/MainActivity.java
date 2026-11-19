@@ -683,6 +683,12 @@ public class MainActivity extends ScreenActivity {
             }
         }
 
+        ui.section(content,"学习",null);
+        LinearLayout learn=ui.group();
+        ui.item(learn,R.drawable.ic_layers,"混合训练","跨词组复习、拼写和错词强化",null,true,v->Motion.open(this,new Intent(this,PracticeSetupActivity.class)));
+        ui.item(learn,R.drawable.ic_list,"全部计划","查看进度，重命名或继续练习",null,true,v->Motion.open(this,new Intent(this,PlansActivity.class)));
+        content.addView(learn,WordUi.lp());
+
         ui.section(content,"课程","内置词表");
         lessonCard();
         completedSection();
@@ -1177,6 +1183,8 @@ public class MainActivity extends ScreenActivity {
         LinearLayout practice=ui.group();
         ui.item(practice,R.drawable.ic_book_x,"错题本","集中复习反复出错的单词",null,true,v->Motion.open(this,new Intent(this,WrongBookActivity.class)));
         ui.item(practice,R.drawable.ic_pen_line,"创造力造句","用学过的词写句子，AI 帮你批改",null,true,v->Motion.open(this,new Intent(this,CreateActivity.class)));
+        ui.item(practice,R.drawable.ic_file_text,"AI 翻译训练","在语境里练习中英文转换",null,true,v->Motion.open(this,new Intent(this,PracticeSetupActivity.class).putExtra("translationOnly",true)));
+        ui.item(practice,R.drawable.ic_shield_check,"数据备份与恢复","导出或恢复学习资料，不含 API Key",null,true,v->Motion.open(this,new Intent(this,BackupActivity.class)));
         content.addView(practice,WordUi.lp());
 
         ui.section(content,"设置",null);
@@ -1570,7 +1578,7 @@ public class MainActivity extends ScreenActivity {
         ui.section(content,"朗读",null);
         LinearLayout speech=ui.group();
         Switch autoSpeak=ui.switchRow(speech,"揭晓答案时自动朗读单词和例句",null,prefs.getBoolean("autoSpeak",true));
-        ui.item(speech,0,"朗读声音与语速","选择声音、调整语速",null,true,v->SpeechSettings.show(this));
+        ui.item(speech,0,"朗读声音与语速","系统声音、MiMo 或克隆音色",null,true,v->Motion.open(this,new Intent(this,VoiceSettingsActivity.class)));
         content.addView(speech,WordUi.lp());
 
         ui.section(content,"交互反馈",null);
@@ -2165,6 +2173,7 @@ public class MainActivity extends ScreenActivity {
             sheet.item(R.drawable.ic_book_open,"计划复习",()->openReview(id,false));
             sheet.item(R.drawable.ic_repeat,"任意复习（不计轮次）",()->openReview(id,true));
             sheet.item(R.drawable.ic_list_checks,"词性义项练习",()->Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",id)));
+            sheet.item(R.drawable.ic_pen_line,"重命名",()->renameTask(id));
             sheet.item(R.drawable.ic_pencil,"校对单词卡",()->Motion.open(this,new Intent(this,WordEditorActivity.class).putExtra("taskId",id)));
             sheet.item(R.drawable.ic_target,"错词义项练习",()->Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",id).putExtra("wrongOnly",true)));
             if(!done)sheet.item(R.drawable.ic_clock,"稍后提醒",()->snooze(id));
@@ -2187,6 +2196,7 @@ public class MainActivity extends ScreenActivity {
         sheet.content(body);
         // Same rule as before the redesign: only tasks due by the end of today can be completed or snoozed.
         boolean dueToday=task.optLong("due")<shiftDay(dayStart(System.currentTimeMillis()),1);
+        sheet.item(R.drawable.ic_pen_line,"重命名",()->renameTask(id));
         if(!done&&dueToday){
             sheet.item(R.drawable.ic_circle_check,"完成本次复习",()->confirmComplete(id));
             sheet.item(R.drawable.ic_clock,"稍后提醒",()->snooze(id));
@@ -2235,6 +2245,42 @@ public class MainActivity extends ScreenActivity {
             list.addView(row,WordUi.lp());
         }
         return list;
+    }
+
+    private void renameTask(long id){
+        JSONObject task=Store.find(Store.tasks(this),id);
+        if(task==null){error("任务已不存在");return;}
+        LinearLayout form=ui.col();
+        EditText title=ui.input("任务名称",task.optString("title"));
+        title.setSingleLine(true);
+        title.setSelection(title.getText().length());
+        form.addView(title,WordUi.lp());
+        TextView failure=inlineError();
+        form.addView(failure,margins(-1,-2,Theme.SPACE_4,Theme.SPACE_8,0,0));
+        Sheet sheet=new Sheet(this).title("重命名").message("只改名称。单词、复习计划和历史记录都保留。").content(form);
+        sheet.secondary("取消",null);
+        sheet.primaryIf("保存",()->{
+            try{
+                JSONArray all=Store.tasks(this);
+                JSONObject current=Store.find(all,id);
+                if(current==null){error("任务已不存在");return true;}
+                String name=TaskTitle.rename(current,title.getText().toString());
+                Store.save(this,all);
+                renderAtScroll();
+                toast("已改名为「"+name+"」");
+                return true;
+            }catch(IllegalArgumentException e){
+                title.setError(e.getMessage());
+                title.requestFocus();
+                Feedback.tick(title);
+                return false;
+            }catch(Exception e){
+                showInline(failure,"未能保存："+e.getMessage());
+                return false;
+            }
+        });
+        sheet.show();
+        title.requestFocus();
     }
 
     private void confirmDelete(long id){

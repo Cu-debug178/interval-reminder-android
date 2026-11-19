@@ -30,7 +30,7 @@ import java.util.Locale;
  */
 final class SpeechSettings {
     private static final float[] RATES={0.60f,0.75f,0.85f,1.0f,1.15f};
-    private static final String[] RATE_LABELS={"很慢 · 0.60×","较慢 · 0.75×","舒缓 · 0.85×（默认）","正常 · 1.00×","较快 · 1.15×"};
+    static final String[] RATE_LABELS={"很慢 · 0.60×","较慢 · 0.75×","舒缓 · 0.85×（默认）","正常 · 1.00×","较快 · 1.15×"};
     private static final String[] RATE_SHORT={"0.6×","0.75×","0.85×","1.0×","1.15×"};
     private static final String DEFAULT_VOICE="系统默认英文声音";
 

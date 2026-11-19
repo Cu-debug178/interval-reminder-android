@@ -2,6 +2,12 @@ import com.example.reviewreminder.IntervalPlan;
 import com.example.reviewreminder.WordParser;
 import com.example.reviewreminder.ReviewSession;
 import com.example.reviewreminder.SpellingPlan;
+import com.example.reviewreminder.SpellingSession;
+import com.example.reviewreminder.TaskTitle;
+import com.example.reviewreminder.Words;
+import com.example.reviewreminder.PlanIdentity;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.util.*;
 import java.nio.file.*;
 
@@ -34,6 +40,65 @@ public final class CoreTest {
         ReviewSession repeatMiss=new ReviewSession(1,false,1);repeatMiss.answer(false);repeatMiss.answer(false);repeatMiss.answer(true);check(Arrays.equals(repeatMiss.missedIndices(),new int[]{0}),"repeated misses retain one wrong-book index");
         ReviewSession known=new ReviewSession(42,true,7);Set<Integer> seen=new HashSet<>();while(!known.ended()){seen.add(known.current());known.answer(true);}check(seen.size()==42&&known.total()==42&&known.remembered()==42,"all cards once");
         ReviewSession a=new ReviewSession(8,true,55),b=new ReviewSession(8,true,55);for(int i=0;i<8;i++){check(a.current()==b.current(),"repeatable shuffle");a.answer(true);b.answer(true);}
+
+        List<SpellingSession.Item> ordinary=Arrays.asList(new SpellingSession.Item("a",0),new SpellingSession.Item("b",0));
+        SpellingSession spelling=new SpellingSession(ordinary,false);
+        check(spelling.current().equals("a")&&spelling.initialTotal()==2,"ordinary queue starts with every word");
+        check(spelling.submit("a",true,false).independent&&!spelling.ended(),"first independent word completes but session continues");
+        check(!spelling.submit("a",true,false).accepted,"duplicate submit cannot count twice");
+        check(spelling.current().equals("b"),"next unfinished word");
+        spelling.submit("b",false,false);check(spelling.current().equals("b")&&!spelling.ended(),"single wrong word is requeued");
+        spelling.submit("b",true,true);check(!spelling.ended()&&spelling.currentStreak("b")==0,"assisted correct never completes ordinary word");
+        spelling.submit("b",true,false);check(spelling.ended()&&spelling.finishedCount()==2,"all ordinary words require independent success");
+
+        SpellingSession wrong=new SpellingSession(Collections.singletonList(new SpellingSession.Item("w",0)),true);
+        wrong.submit("w",true,true);check(wrong.currentStreak("w")==0&&!wrong.ended(),"hint resets wrong-word streak");
+        wrong.submit("w",true,false);check(wrong.currentStreak("w")==1&&!wrong.ended(),"wrong word learning after one independent correct");
+        SpellingSession restored=SpellingSession.restore(wrong.snapshot());
+        check(restored.current().equals("w")&&restored.currentStreak("w")==1,"snapshot restores queue and streak");
+        restored.submit("w",true,false);check(restored.ended()&&restored.currentStreak("w")==2,"two independent correct answers master wrong word");
+
+        SpellingSession existing=new SpellingSession(Collections.singletonList(new SpellingSession.Item("w",1)),true);
+        existing.skip("w");check(existing.currentStreak("w")==0&&!existing.ended(),"skip clears streak and retains word");
+        existing.submit("w",true,false);existing.submit("w",true,false);check(existing.ended(),"existing evidence can be reused after a fresh two-streak");
+        SpellingSession mastered=new SpellingSession(Collections.singletonList(new SpellingSession.Item("m",2)),true);
+        check(mastered.ended()&&mastered.initialTotal()==0,"already mastered words need no additional work");
+        SpellingSession spacing=new SpellingSession(ordinary,false);spacing.submit("a",false,false);check(spacing.current().equals("b"),"wrong word reappears after another word when possible");
+        try{SpellingSession.restore("broken");throw new AssertionError("accepted broken spelling snapshot");}catch(IllegalArgumentException expected){checks++;}
+        SpellingSession missing=new SpellingSession(Arrays.asList(new SpellingSession.Item("gone",0),new SpellingSession.Item("stay",0)),false);
+        check(missing.abandon("gone")&&missing.current().equals("stay")&&missing.initialTotal()==1,"missing word leaves the queue without ending the session");
+        check(!missing.abandon("gone"),"abandon rejects a word that is not current");
+        check(missing.abandon("stay")&&missing.ended()&&missing.initialTotal()==0,"abandoning the last word ends the session");
+        SpellingSession kept=SpellingSession.restore(missing.snapshot());
+        check(kept.ended()&&kept.initialTotal()==0,"abandoned words stay out of a restored snapshot");
+
+        JSONObject named=new JSONObject().put("id",7).put("title","旧名称").put("words",new JSONArray().put("apple")).put("intervals",new JSONArray().put(5)).put("history",new JSONArray().put(new JSONObject().put("stage",1))).put("windows","07:30-08:30").put("created",42);
+        String renamed=TaskTitle.rename(named,"  新名称  ");
+        check(renamed.equals("新名称")&&named.optString("title").equals("新名称"),"rename trims and stores the new title");
+        check(named.optLong("id")==7&&named.optJSONArray("words").getString(0).equals("apple"),"rename keeps the task id and words");
+        check(named.optJSONArray("intervals").getLong(0)==5&&named.optJSONArray("history").getJSONObject(0).optInt("stage")==1,"rename keeps the schedule and history");
+        check(named.optString("windows").equals("07:30-08:30")&&named.optLong("created")==42,"rename keeps the windows and created time");
+        try{TaskTitle.rename(named,"   ");throw new AssertionError("accepted a blank name");}catch(IllegalArgumentException expected){checks++;}
+        try{TaskTitle.rename(named,null);throw new AssertionError("accepted a missing name");}catch(IllegalArgumentException expected){checks++;}
+        check(named.optString("title").equals("新名称"),"rejected names leave the current title in place");
+        JSONObject renamedPlan=new JSONObject(named.toString()).put("title","后来的名字");
+        check(PlanIdentity.same(named,renamedPlan),"a renamed plan still matches the backup of its original id");
+        check(!PlanIdentity.same(named,new JSONObject(named.toString()).put("created",99)),"a different creation time is not the same plan");
+        check(!PlanIdentity.same(null,named),"a missing plan is not a match");
+
+        JSONObject card=new JSONObject().put("english","Apple").put("chinese","苹果");
+        String id=Words.stableId(card);
+        check(id.startsWith("w_")&&id.equals(Words.stableId(card)),"word id is stable once assigned");
+        JSONObject copy=new JSONObject().put("english","APPLE").put("chinese","苹果");
+        check(Words.stableId(copy).equals(id),"the same spelling and meaning share an id before one is saved");
+        JSONObject other=new JSONObject().put("english","apple").put("chinese","苹果公司");
+        check(!Words.stableId(other).equals(id),"a different meaning stays a different word");
+        card.put("english","apricot");
+        check(Words.stableId(card).equals(id),"editing the spelling does not mint a new id");
+        JSONArray cards=new JSONArray().put(other).put(card);
+        check(Words.locate(cards,0,id)==1,"locate follows the id when the hinted slot is a different card");
+        check(Words.locate(cards,5,null)==-1,"locate rejects a missing hint when no id is given");
+
         System.out.println("CoreTest: "+checks+" checks passed");
     }
 }

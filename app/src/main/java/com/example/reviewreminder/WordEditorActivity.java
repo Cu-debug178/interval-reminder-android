@@ -2,6 +2,8 @@ package com.example.reviewreminder;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -14,6 +16,8 @@ import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
@@ -42,6 +46,9 @@ public final class WordEditorActivity extends ScreenActivity {
     private boolean aiBusy,rendered;
     private float lastProgress=-1;
     private final Feedback interaction=new Feedback();
+    private static final int PICK_CONNECTION_IMAGE=71,DRAW_CONNECTION_IMAGE=72;
+    private boolean importingImage;
+    private final ExecutorService imageWorker=Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -77,6 +84,7 @@ public final class WordEditorActivity extends ScreenActivity {
 
     @Override protected void onDestroy(){
         AiClient.cancel(pending);
+        imageWorker.shutdownNow();
         // Let a just-started completion sound finish before the pool goes away.
         final Feedback sounds=interaction;
         new Handler(Looper.getMainLooper()).postDelayed(sounds::release,1500);
@@ -140,6 +148,7 @@ public final class WordEditorActivity extends ScreenActivity {
         WordUi.enable(aiButton,!aiBusy);
         labelRow(card,"例句","可留空",aiButton);
         example=cardInput(card,word.optString("example"),2,"英文例句");
+        connectionBlock(card,word);
 
         body.addView(card,WordUi.lp());
         content=card;
@@ -222,8 +231,8 @@ public final class WordEditorActivity extends ScreenActivity {
         body.addView(progress(),WordUi.lp());
         ui.gap(body,Theme.SPACE_20);
 
-        JSONObject word=words.optJSONObject(index);
-        if(word==null)word=new JSONObject();
+        JSONObject loaded=words.optJSONObject(index);
+        final JSONObject word=loaded==null?new JSONObject():loaded;
         LinearLayout card=ui.card();
         card.setGravity(Gravity.CENTER);
         card.setMinimumHeight(ui.dp(280));
@@ -263,6 +272,9 @@ public final class WordEditorActivity extends ScreenActivity {
         }
         body.addView(card,WordUi.lp());
         content=card;
+        if(ConnectionImages.exists(this,word.optString("connectionImage"))){
+            body.addView(ui.textButton("查看连接图",v->openConnection(word)),ui.lpMargin(Theme.SPACE_8,0));
+        }
 
         boolean last=index==words.length()-1;
         Button issue=ui.secondaryButton("有问题，修改",v->{
@@ -395,6 +407,8 @@ public final class WordEditorActivity extends ScreenActivity {
                         focusEnglish();
                     }catch(Exception e){ui.error(e.getMessage());}
                 })
+                .item(R.drawable.ic_image_plus,"添加或更换连接图",()->{if(save(true))pickConnectionImage();})
+                .item(R.drawable.ic_pen_line,"手绘连接图",()->{if(save(true))drawConnection();})
                 .dangerItem(R.drawable.ic_trash_2,"删除此卡",this::remove)
                 .show();
     }
@@ -591,6 +605,111 @@ public final class WordEditorActivity extends ScreenActivity {
         sheet.show();
     }
 
+    private void connectionBlock(LinearLayout card,JSONObject word){
+        ui.gap(card,Theme.SPACE_16);
+        labelRow(card,"连接图","可选，复习时再打开",null);
+        String path=word.optString("connectionImage");
+        boolean present=ConnectionImages.exists(this,path);
+        if(present){
+            ImageView preview=new ImageView(this);
+            preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            preview.setContentDescription("查看连接图");
+            try{
+                Bitmap value=ConnectionImages.decode(this,path,900);
+                preview.setImageBitmap(value);
+                preview.setBackground(Theme.shape(this,Theme.BG,Theme.RADIUS_FIELD));
+                preview.setClipToOutline(true);
+                preview.setOnClickListener(v->openConnection(word));
+                Motion.press(preview,.985f);
+                card.addView(preview,new LinearLayout.LayoutParams(-1,ui.dp(140)));
+            }catch(Exception e){present=false;}
+        }
+        if(!present){
+            TextView empty=ui.type(path.isEmpty()?"没有连接图。复习卡不会留出空白。":"原连接图已丢失，可以重新添加或手绘。",Theme.T_CAPTION);
+            empty.setTextColor(path.isEmpty()?Theme.INK_3:Theme.WARN);
+            card.addView(empty,WordUi.lp());
+        }
+        LinearLayout actions=ui.row();
+        actions.addView(ui.quietPill(present?"更换图片":"添加图片",R.drawable.ic_image_plus,v->{if(save(true))pickConnectionImage();}),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
+        actions.addView(ui.quietPill("手绘",R.drawable.ic_pen_line,v->{if(save(true))drawConnection();}),marginsConnection());
+        if(present)actions.addView(ui.quietPill("删除",R.drawable.ic_trash_2,v->deleteConnection(word)),marginsConnection());
+        card.addView(actions,ui.lpMargin(Theme.SPACE_12,0));
+    }
+    private LinearLayout.LayoutParams marginsConnection(){
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL));
+        p.leftMargin=ui.dp(Theme.SPACE_8);
+        return p;
+    }
+    private void pickConnectionImage(){
+        if(importingImage)return;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
+        try{startActivityForResult(intent,PICK_CONNECTION_IMAGE);}catch(Exception e){ui.error("没有可用的图片选择器");}
+    }
+    private void drawConnection(){
+        if(importingImage)return;
+        try{startActivityForResult(new Intent(this,DrawingActivity.class),DRAW_CONNECTION_IMAGE);}catch(Exception e){ui.error("无法打开手绘页");}
+    }
+    private void deleteConnection(JSONObject word){
+        Sheet.confirm(this,"删除连接图？","只删除这张图片，单词和复习记录都保留。","保留","删除",true,()->{
+            ConnectionImages.delete(this,word.optString("connectionImage"));
+            try{word.put("connectionImage","");persistWords();show();ui.toast("连接图已删除");}catch(Exception e){ui.error(e.getMessage());}
+        });
+    }
+    private void openConnection(JSONObject word){
+        if(!ConnectionImages.exists(this,word.optString("connectionImage"))){ui.error("连接图已丢失");return;}
+        Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english")));
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK||data==null)return;
+        if(request==DRAW_CONNECTION_IMAGE){String path=data.getStringExtra("path");if(path!=null)applyConnection(path);}
+        else if(request==PICK_CONNECTION_IMAGE&&data.getData()!=null)loadConnection(data.getData());
+    }
+    private void loadConnection(Uri uri){
+        if(importingImage)return;
+        JSONObject target=words.optJSONObject(index);
+        if(target==null){ui.error("当前单词卡已变化，请重试");return;}
+        importingImage=true;
+        final int expected=index;
+        ui.toast("正在处理连接图…");
+        imageWorker.execute(()->{
+            try{
+                String path=ConnectionImages.importUri(getApplicationContext(),uri);
+                runOnUiThread(()->{
+                    if(isFinishing()||isDestroyed())return;
+                    importingImage=false;
+                    if(index!=expected){ui.toast("已换到其他卡片，连接图未写入");return;}
+                    applyConnection(path);
+                });
+            }catch(Exception e){
+                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;importingImage=false;ui.error("图片保存失败："+e.getMessage());});
+            }
+        });
+    }
+    private void applyConnection(String path){
+        JSONObject word=words.optJSONObject(index);
+        if(word==null)return;
+        try{
+            String old=word.optString("connectionImage");
+            if(!old.isEmpty()&&!old.equals(path))ConnectionImages.delete(this,old);
+            word.put("connectionImage",path);
+            persistWords();
+            show();
+            ui.toast("连接图已保存");
+        }catch(Exception e){ui.error(e.getMessage());}
+    }
+    private void persistWords()throws Exception{
+        document.put("words",words);
+        if(taskId==0)Words.writeDraft(this,document);
+        else{
+            JSONArray all=Store.tasks(this);
+            JSONObject current=Store.find(all,taskId);
+            if(current==null)throw new Exception("任务已删除");
+            current.put("words",words);
+            Store.save(this,all);
+        }
+    }
+
     private void clearFields(){english=null;chinese=null;example=null;title=null;}
 
     private boolean save(boolean report){
@@ -601,6 +720,7 @@ public final class WordEditorActivity extends ScreenActivity {
         }
         try{
             JSONObject word=words.getJSONObject(index);
+            Words.stableId(word);
             String nextChinese=chinese.getText().toString().trim();
             String prevChinese=word.optString("chinese","");
             word.put("english",english.getText().toString().trim()).put("chinese",nextChinese).put("example",example.getText().toString().trim());
