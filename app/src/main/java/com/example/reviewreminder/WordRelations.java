@@ -16,11 +16,9 @@ final class WordRelations {
         catch(Exception e){return empty();}
     }
 
+    /** Saved cards only. An unsaved draft is merged by the caller that is editing it, not here. */
     static JSONArray catalog(Context c){
-        try{return LocalStore.inRead(c,new LocalStore.Read<JSONArray>(){public JSONArray read() throws Exception {
-            JSONArray saved=catalogLocked();
-            try{return Words.mergeCatalog(saved,draftWords(c));}catch(Exception e){return saved;}
-        }});}
+        try{return LocalStore.inRead(c,new LocalStore.Read<JSONArray>(){public JSONArray read(){return catalogLocked();}});}
         catch(Exception e){return new JSONArray();}
     }
 
@@ -167,14 +165,5 @@ final class WordRelations {
             }
         }finally{cursor.close();}
         return out;
-    }
-
-    /** Words in an unsaved proofreading draft are link targets before the plan is created. */
-    private static JSONArray draftWords(Context c){
-        try{
-            if(!Words.hasDraft(c))return new JSONArray();
-            JSONArray words=Words.draft(c).optJSONArray("words");
-            return words==null?new JSONArray():words;
-        }catch(Exception e){return new JSONArray();}
     }
 }

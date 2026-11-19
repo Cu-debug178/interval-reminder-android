@@ -24,6 +24,8 @@ public final class RelationActivity extends ScreenActivity {
     private WordUi ui;
     private SpeechManager speech;
     private String wordId="",english="",chinese="",groupId="";
+    /** Sibling cards from the unsaved plan that opened this screen. Not used for review or the global list. */
+    private JSONArray draftWords=new JSONArray();
     private Future<?> pending;
     private boolean busy;
 
@@ -36,11 +38,13 @@ public final class RelationActivity extends ScreenActivity {
             english=state.getString("english","");
             chinese=state.getString("chinese","");
             groupId=state.getString("groupId","");
+            draftWords=arrayExtra(state.getString("draftWords"));
         }else{
             wordId=textExtra("wordId");
             english=textExtra("english");
             chinese=textExtra("chinese");
             groupId=textExtra("groupId");
+            draftWords=arrayExtra(getIntent().getStringExtra("draftWords"));
         }
         show();
     }
@@ -50,12 +54,25 @@ public final class RelationActivity extends ScreenActivity {
         out.putString("english",english);
         out.putString("chinese",chinese);
         out.putString("groupId",groupId);
+        out.putString("draftWords",draftWords==null?"[]":draftWords.toString());
         super.onSaveInstanceState(out);
     }
 
     @Override protected void onResume(){super.onResume();if(ui!=null&&ui.body!=null&&!busy)show();}
 
     private String textExtra(String key){String value=getIntent().getStringExtra(key);return value==null?"":value;}
+
+    private static JSONArray arrayExtra(String raw){
+        if(raw==null||raw.trim().isEmpty())return new JSONArray();
+        try{return new JSONArray(raw);}catch(Exception e){return new JSONArray();}
+    }
+
+    /** Saved vocabulary, plus the siblings of the unsaved plan that opened this screen. */
+    private JSONArray catalog(){
+        JSONArray saved=WordRelations.catalog(this);
+        if(draftWords==null||draftWords.length()==0)return saved;
+        try{return Words.mergeCatalog(saved,draftWords);}catch(Exception e){return saved;}
+    }
 
     @Override public void onBackPressed(){
         if(groupId!=null&&!groupId.isEmpty()){groupId="";show();return;}
@@ -85,7 +102,7 @@ public final class RelationActivity extends ScreenActivity {
         if(groupCount>0){
             ui.section(ui.body,"归纳",groupCount+" 组");
             LinearLayout list=ui.group();
-            JSONArray catalog=WordRelations.catalog(this);
+            JSONArray catalog=catalog();
             for(int i=0;i<groupCount;i++){
                 JSONObject group=groups.optJSONObject(i);
                 if(group==null)continue;
@@ -97,7 +114,7 @@ public final class RelationActivity extends ScreenActivity {
         if(linkCount>0){
             ui.section(ui.body,"词与词",linkCount+" 条");
             LinearLayout list=ui.group();
-            JSONArray catalog=WordRelations.catalog(this);
+            JSONArray catalog=catalog();
             int shown=0;
             for(int i=0;i<linkCount&&shown<40;i++){
                 JSONObject link=links.optJSONObject(i);
@@ -113,7 +130,7 @@ public final class RelationActivity extends ScreenActivity {
     }
 
     private void showWord(){
-        JSONArray catalog=WordRelations.catalog(this);
+        JSONArray catalog=catalog();
         JSONObject self=findCard(catalog,wordId);
         if(self!=null){english=self.optString("english",english);chinese=self.optString("chinese",chinese);}
         ui.start(english.isEmpty()?"相关词":english,R.drawable.ic_ellipsis,"更多",v->wordMenu());
@@ -179,7 +196,7 @@ public final class RelationActivity extends ScreenActivity {
         final JSONObject current=group;
         ui.start(current.optString("name"),R.drawable.ic_ellipsis,"更多",v->groupMenu(current));
         ui.note(ui.body,WordGraph.kindLabel(current.optString("kind"))+"归纳。组里的词在复习时会互相出现。");
-        JSONArray catalog=WordRelations.catalog(this);
+        JSONArray catalog=catalog();
         JSONArray members=WordGraph.membersOf(graph,groupId);
         if(members.length()==0){
             ui.body.addView(ui.empty(R.drawable.ic_layers,"这组还没有词","把已经学过的词加进来。",null,null));
@@ -375,7 +392,7 @@ public final class RelationActivity extends ScreenActivity {
     }
 
     private void suggestLocal(){
-        JSONArray catalog=WordRelations.catalog(this);
+        JSONArray catalog=catalog();
         JSONArray found;
         try{found=WordGraph.suggestForm(catalog,wordId,english,8);}catch(Exception e){ui.error(message(e));return;}
         if(found.length()==0){ui.toast("没有发现明显的形近词");return;}
@@ -411,7 +428,7 @@ public final class RelationActivity extends ScreenActivity {
     }
 
     private JSONArray matchSuggestions(JSONArray links){
-        JSONArray catalog=WordRelations.catalog(this);
+        JSONArray catalog=catalog();
         JSONArray out=new JSONArray();
         java.util.HashSet<String> seen=new java.util.HashSet<>();
         if(links==null)return out;
@@ -467,7 +484,7 @@ public final class RelationActivity extends ScreenActivity {
     }
 
     private JSONArray others(){
-        JSONArray catalog=WordRelations.catalog(this);
+        JSONArray catalog=catalog();
         JSONArray out=new JSONArray();
         for(int i=0;i<catalog.length();i++){
             JSONObject card=catalog.optJSONObject(i);
@@ -477,7 +494,7 @@ public final class RelationActivity extends ScreenActivity {
     }
 
     private void openWord(String id){
-        JSONObject card=findCard(WordRelations.catalog(this),id);
+        JSONObject card=findCard(catalog(),id);
         wordId=id;
         groupId="";
         english=card==null?"":card.optString("english");

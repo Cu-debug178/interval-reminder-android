@@ -639,7 +639,9 @@ public final class WordEditorActivity extends ScreenActivity {
             Words.stableId(word);
             persistWords();
         }catch(Exception e){ui.error(e.getMessage()==null?"无法保存单词":e.getMessage());return;}
-        Motion.open(this,new Intent(this,RelationActivity.class).putExtra("wordId",Words.stableId(word)).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese")));
+        Intent open=new Intent(this,RelationActivity.class).putExtra("wordId",Words.stableId(word)).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese"));
+        if(taskId==0&&words!=null)open.putExtra("draftWords",words.toString());
+        Motion.open(this,open);
     }
     private void deleteConnection(JSONObject word){
         Sheet.confirm(this,"删除这张旧图片？","只删除图片，单词、复习记录和词汇关系都保留。","保留","删除",true,()->{
