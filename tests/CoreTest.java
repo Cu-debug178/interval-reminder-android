@@ -137,6 +137,20 @@ public final class CoreTest {
         JSONObject rebuilt=TaskIndex.rebuild(bundle.index).getJSONObject(0);
         check(rebuilt.optLong("created")==42&&rebuilt.optString("title").equals("新名称")&&rebuilt.optString("customMark").equals("keep-me"),"created time, title and extra task fields survive");
         check(PlanIdentity.same(named,rebuilt),"a migrated plan still matches the backup of its original creation time");
+        JSONObject legacyCard=new JSONObject().put("english","apricot").put("chinese","杏").put("connectionImage","ci_old.jpg");
+        check(legacyCard.optString("wordId").isEmpty(),"a migrated card can omit wordId");
+        String counted=Words.stableId(new JSONObject(legacyCard.toString()));
+        check(counted.equals(Words.stableId(legacyCard))&&!counted.isEmpty(),"relation counts use the computed id when wordId was never stored");
+        JSONArray savedCatalog=new JSONArray().put(new JSONObject().put("wordId",counted).put("english","apricot").put("chinese","杏"));
+        JSONArray draftWords=new JSONArray()
+            .put(new JSONObject().put("english","apricot").put("chinese","杏"))
+            .put(new JSONObject().put("english","pear").put("chinese","梨"))
+            .put(new JSONObject().put("english"," ").put("chinese","空白"));
+        JSONArray mergedCatalog=Words.mergeCatalog(savedCatalog,draftWords);
+        check(mergedCatalog.length()==2,"an unsaved sibling joins the catalog and a blank card does not");
+        check(mergedCatalog.getJSONObject(0).optString("wordId").equals(counted),"a draft copy of a saved card does not duplicate it");
+        String pearId=Words.stableId(new JSONObject().put("english","pear").put("chinese","梨"));
+        check(mergedCatalog.getJSONObject(1).optString("wordId").equals(pearId)&&mergedCatalog.getJSONObject(1).optString("english").equals("pear"),"a draft word without wordId is still a link target");
         Map<String,LegacyMigration.Value> older=new LinkedHashMap<>();
         older.put("windows",new LegacyMigration.Value("string",""));
         older.put("intervals",new LegacyMigration.Value("string",defaults));

@@ -600,7 +600,9 @@ public final class WordEditorActivity extends ScreenActivity {
     private void relationBlock(LinearLayout card,JSONObject word){
         ui.gap(card,Theme.SPACE_16);
         labelRow(card,"相关词","近义、词形与归纳",null);
-        String id=word.optString("wordId");
+        // Migrated cards keep their original JSON, which often has no wordId. The id review
+        // already uses is the stable hash, so the count has to follow that and not the missing field.
+        String id=Words.stableId(word);
         int count=id.isEmpty()?0:WordRelations.countFor(this,id);
         TextView summary=ui.type(count==0?"还没有关联。保存后可与其他单词相连，复习揭晓时会显示。":"已有 "+count+" 个相关词，复习揭晓后会出现。",Theme.T_CAPTION);
         summary.setTextColor(Theme.INK_3);

@@ -5,8 +5,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.*;
 import java.security.MessageDigest;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public final class Words {
     private Words() {}
@@ -36,6 +38,30 @@ public final class Words {
             String fallback="w_"+Integer.toHexString(source.hashCode());
             try{word.put("wordId",fallback);}catch(Exception ignored){}
             return fallback;
+        }
+    }
+    /**
+     * Saved cards first, then extra cards (an unsaved draft) whose id is not already listed.
+     * A card without {@code wordId} still joins under {@link #stableId}, so overlay data and a
+     * draft can be linked before that field is written back.
+     */
+    public static JSONArray mergeCatalog(JSONArray saved,JSONArray extras) throws Exception {
+        JSONArray out=new JSONArray();
+        Set<String> seen=new LinkedHashSet<>();
+        addCatalog(out,seen,saved);
+        addCatalog(out,seen,extras);
+        return out;
+    }
+    private static void addCatalog(JSONArray out,Set<String> seen,JSONArray words) throws Exception {
+        if(words==null)return;
+        for(int i=0;i<words.length();i++){
+            JSONObject word=words.optJSONObject(i);
+            if(word==null)continue;
+            if(word.optString("english").trim().isEmpty()&&word.optString("wordId").trim().isEmpty())continue;
+            JSONObject copy=new JSONObject(word.toString());
+            String id=stableId(copy);
+            if(id.isEmpty()||!seen.add(id))continue;
+            out.put(new JSONObject().put("wordId",id).put("english",copy.optString("english")).put("chinese",copy.optString("chinese")));
         }
     }
     /** Prefer the hinted card when it still has this id; otherwise find the card after edits or reordering. */
