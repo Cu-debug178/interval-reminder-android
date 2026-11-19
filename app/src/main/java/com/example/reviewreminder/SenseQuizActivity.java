@@ -52,7 +52,7 @@ public final class SenseQuizActivity extends ScreenActivity {
         boolean wrongOnly=getIntent().getBooleanExtra("wrongOnly",false);
         for(int i=0;i<words.length();i++){
             JSONObject word=words.optJSONObject(i);if(word==null)continue;
-            if(wrongOnly&&word.optInt("wrongCount")<=0)continue;
+            if(wrongOnly&&!WrongBook.inBook(WrongBook.stateForWord(this,word)))continue;
             JSONArray senses=Senses.of(word);
             for(int s=0;s<senses.length();s++)list.add(new int[]{i,s});
         }

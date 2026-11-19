@@ -61,10 +61,24 @@ final class ConnectionImages {
         ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=new FileInputStream(f)){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);}
         return Base64Compat.encode(out.toByteArray());
     }
-    static void restore(Context c,String relative,String encoded)throws IOException{
+    static final class StagedFile {
+        final File temp,target;
+        StagedFile(File temp,File target){this.temp=temp;this.target=target;}
+    }
+    /** Write beside the destination so a failed restore can discard the temp without replacing the current image. */
+    static StagedFile stage(Context c,String relative,String encoded)throws IOException{
         File target=file(c,relative);if(target==null)throw new IOException("连接图路径无效");
         byte[] bytes=Base64Compat.decode(encoded);if(bytes.length==0)throw new IOException("连接图为空");
-        File tmp=new File(target.getParentFile(),target.getName()+".tmp");try(FileOutputStream out=new FileOutputStream(tmp)){out.write(bytes);out.getFD().sync();}
-        if(!tmp.renameTo(target)){tmp.delete();throw new IOException("连接图恢复失败");}
+        File tmp=new File(target.getParentFile(),target.getName()+".part");
+        try(FileOutputStream out=new FileOutputStream(tmp)){out.write(bytes);out.getFD().sync();}
+        return new StagedFile(tmp,target);
+    }
+    static void restore(Context c,String relative,String encoded)throws IOException{
+        StagedFile staged=stage(c,relative,encoded);
+        if(!publish(staged.temp,staged.target)){staged.temp.delete();throw new IOException("连接图恢复失败");}
+    }
+    static boolean publish(File temp,File target){
+        if(temp.renameTo(target))return true;
+        return target.exists()&&target.delete()&&temp.renameTo(target);
     }
 }

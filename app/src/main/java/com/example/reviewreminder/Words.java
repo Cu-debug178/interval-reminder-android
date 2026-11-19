@@ -22,6 +22,16 @@ public final class Words {
             MessageDigest digest=MessageDigest.getInstance("SHA-256");byte[] hash=digest.digest(source.getBytes("UTF-8"));StringBuilder id=new StringBuilder("w_");for(int i=0;i<12;i++)id.append(String.format(Locale.US,"%02x",hash[i]));word.put("wordId",id.toString());return id.toString();
         }catch(Exception e){String fallback="w_"+Integer.toHexString(source.hashCode());try{word.put("wordId",fallback);}catch(Exception ignored){}return fallback;}
     }
+    /** Prefer the hinted card when it still has this id; otherwise find the card after edits or reordering. */
+    public static int locate(JSONArray words,int hint,String wordId){
+        if(words==null)return -1;
+        if(wordId!=null&&!wordId.isEmpty()){
+            if(hint>=0&&hint<words.length()){JSONObject word=words.optJSONObject(hint);if(word!=null&&wordId.equals(stableId(word)))return hint;}
+            for(int i=0;i<words.length();i++){JSONObject word=words.optJSONObject(i);if(word!=null&&wordId.equals(stableId(word)))return i;}
+            return -1;
+        }
+        return hint>=0&&hint<words.length()&&words.optJSONObject(hint)!=null?hint:-1;
+    }
     public static String read(InputStream in) throws IOException {
         try(InputStream source=in;ByteArrayOutputStream out=new ByteArrayOutputStream()) {byte[] b=new byte[8192];int n;while((n=source.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}
     }

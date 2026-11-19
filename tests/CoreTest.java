@@ -61,6 +61,12 @@ public final class CoreTest {
         List<SpellingSession.Item> tenItems=new ArrayList<>();for(int i=0;i<10;i++)tenItems.add(new SpellingSession.Item("id"+i,0));SpellingSession ten=new SpellingSession(tenItems,false);for(int i=0;i<9;i++)ten.submit("id"+i,true,false);check(!ten.ended()&&ten.finishedCount()==9,"T01 nine of ten independent words cannot finish");ten.submit("id9",true,false);check(ten.ended(),"T01 tenth independent word finishes session");
         SpellingSession spacing=new SpellingSession(ordinary,false);spacing.submit("a",false,false);check(spacing.current().equals("b"),"wrong word reappears after another word when possible");
         try{SpellingSession.restore("broken");throw new AssertionError("accepted broken spelling snapshot");}catch(IllegalArgumentException expected){checks++;}
+        SpellingSession missing=new SpellingSession(Arrays.asList(new SpellingSession.Item("gone",0),new SpellingSession.Item("stay",0)),false);
+        check(missing.abandon("gone")&&missing.current().equals("stay")&&missing.initialTotal()==1,"missing word leaves the queue without ending the session");
+        check(!missing.abandon("gone"),"abandon rejects a word that is not current");
+        check(missing.abandon("stay")&&missing.ended()&&missing.initialTotal()==0,"abandoning the last word ends the session");
+        SpellingSession kept=SpellingSession.restore(missing.snapshot());
+        check(kept.ended()&&kept.initialTotal()==0,"abandoned words stay out of a restored snapshot");
         System.out.println("CoreTest: "+checks+" checks passed");
     }
 }

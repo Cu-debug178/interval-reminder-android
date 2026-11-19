@@ -83,7 +83,7 @@ public final class BackupActivity extends ScreenActivity {
         if(busy)return;setBusy(true,replace?"正在替换数据…":"正在合并数据…");
         worker.execute(()->{
             try{BackupManager.Result result=BackupManager.apply(getApplicationContext(),backup,replace);
-                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;loaded=null;setBusy(false,result.summary()+" "+result.tasksAdded+" 个新计划，"+result.wordsAdded+" 个新单词，"+result.wrongStates+" 条错词记录，"+result.exercises+" 道翻译练习，"+result.profiles+" 个音色，"+result.images+" 张连接图。"+"\n已重新安排未完成计划的提醒。");ui.toast("备份恢复完成");});
+                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;loaded=null;String detail=result.summary()+" "+result.tasksAdded+" 个新计划，"+result.wordsAdded+" 个新单词，"+result.wrongStates+" 条错词记录，"+result.exercises+" 道翻译练习，"+result.profiles+" 个音色，"+result.images+" 张连接图。"+"\n已重新安排未完成计划的提醒。";if(result.warning!=null&&!result.warning.isEmpty())detail+="\n"+result.warning;setBusy(false,detail);ui.toast(result.warning==null||result.warning.isEmpty()?"备份恢复完成":"备份已写入，但有部分内容需要检查");});
             }catch(Exception e){runOnUiThread(()->{if(isFinishing()||isDestroyed())return;setBusy(false,"恢复失败，原有数据未被清空："+message(e));});}
         });
     }
