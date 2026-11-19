@@ -68,7 +68,7 @@ public final class ReviewActivity extends ScreenActivity {
     // Current card parts.
     private JSONObject currentWord;
     private String currentExample="";
-    private View hairline,masteryRow;
+    private View hairline,masteryRow,relationsRow;
     private TextView back,sentence;
     private Button pronounce;
 
@@ -334,6 +334,19 @@ public final class ReviewActivity extends ScreenActivity {
         mastery.addView(masteryLabel,mp);
         content.addView(mastery,ui.lpMargin(Theme.SPACE_24,0));
         masteryRow=mastery;
+        String relationLabel="";
+        try{relationLabel=WordRelations.studyLabel(this,Words.stableId(word));}catch(Exception ignored){}
+        boolean hasRelations=relationLabel!=null&&!relationLabel.isEmpty();
+        Button relations=ui.quietPill(hasRelations?relationLabel:"相关词",R.drawable.ic_layers,v->openRelations(word));
+        relations.setSingleLine(true);
+        relations.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        relations.setOnLongClickListener(v->true);
+        relations.setVisibility(hasRelations?(revealed?View.VISIBLE:View.INVISIBLE):View.GONE);
+        LinearLayout.LayoutParams relationLp=new LinearLayout.LayoutParams(-2,-2);
+        relationLp.topMargin=ui.dp(Theme.SPACE_16);
+        relationLp.gravity=Gravity.CENTER_HORIZONTAL;
+        content.addView(relations,relationLp);
+        relationsRow=relations;
 
         card.addView(content,new LinearLayout.LayoutParams(-1,0,1));
 
@@ -479,6 +492,10 @@ public final class ReviewActivity extends ScreenActivity {
         }
         masteryRow.setVisibility(View.VISIBLE);
         Motion.enter(masteryRow,0,delay);
+        if(relationsRow!=null&&relationsRow.getVisibility()!=View.GONE){
+            relationsRow.setVisibility(View.VISIBLE);
+            Motion.enter(relationsRow,0,delay);
+        }
         if(pronounce.getVisibility()!=View.VISIBLE){
             pronounce.setVisibility(View.VISIBLE);
             Motion.enter(pronounce,0,delay);
@@ -539,9 +556,16 @@ public final class ReviewActivity extends ScreenActivity {
         if(changing||currentWord==null)return;
         JSONObject word=currentWord;
         Sheet sheet=new Sheet(this)
-            .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文或例句",()->edit(word));
-        if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看连接图",()->Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english"))));
+            .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文或例句",()->edit(word))
+            .item(R.drawable.ic_layers,"相关词","近义、词形与归纳",()->openRelations(word));
+        if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看附带图片",()->Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english"))));
         sheet.show();
+    }
+
+    private void openRelations(JSONObject word){
+        if(word==null)return;
+        String id=Words.stableId(word);
+        Motion.open(this,new Intent(this,RelationActivity.class).putExtra("wordId",id).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese")));
     }
 
     private void edit(JSONObject word){

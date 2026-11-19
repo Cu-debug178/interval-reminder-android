@@ -1182,6 +1182,7 @@ public class MainActivity extends ScreenActivity {
         ui.section(content,"练习",null);
         LinearLayout practice=ui.group();
         ui.item(practice,R.drawable.ic_book_x,"错题本","集中复习反复出错的单词",null,true,v->Motion.open(this,new Intent(this,WrongBookActivity.class)));
+        ui.item(practice,R.drawable.ic_layers,"词汇关系","近义、词形和归纳，复习时一起出现",null,true,v->Motion.open(this,new Intent(this,RelationActivity.class)));
         ui.item(practice,R.drawable.ic_pen_line,"创造力造句","用学过的词写句子，AI 帮你批改",null,true,v->Motion.open(this,new Intent(this,CreateActivity.class)));
         ui.item(practice,R.drawable.ic_file_text,"AI 翻译训练","在语境里练习中英文转换",null,true,v->Motion.open(this,new Intent(this,PracticeSetupActivity.class).putExtra("translationOnly",true)));
         ui.item(practice,R.drawable.ic_shield_check,"数据备份与恢复","导出或恢复学习资料，不含 API Key",null,true,v->Motion.open(this,new Intent(this,BackupActivity.class)));

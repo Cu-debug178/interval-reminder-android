@@ -23,35 +23,50 @@ final class SpeechManager {
     private static final long CACHE_LIMIT=64*1024*1024;
     private final Context app;
     private TextToSpeech tts;private MediaPlayer player;private Future<?> pending;
-    private boolean ttsReady,ttsStarting,active=true;private int generation;private String pendingText,currentText;private int pendingGeneration;
+    private boolean ttsReady,ttsStarting,active=true;private int generation;private String pendingText,currentText,pendingSystemVoice="",speakProvider=VoiceStore.SYSTEM;private int pendingGeneration,pendingRate=2,speakRate=2;
 
     SpeechManager(Context context){app=context.getApplicationContext();}
 
-    void speak(String text,String context){
+    void speak(String text,String context){speak(text,context,null,null,-1);}
+
+    /**
+     * Review playback uses the saved voice. A preview may pass a provider, voice id and rate index
+     * that have not been saved yet; null / -1 keep the saved selection.
+     */
+    void speak(String text,String context,String providerOverride,String voiceOverride,int rateOverride){
         final String value=text==null?"":text.trim();if(value.isEmpty()||!active)return;
         stopCurrent();final int ticket=++generation;currentText=value;
-        String provider=VoiceStore.provider(app),voiceId=VoiceStore.voiceId(app);JSONObject profile=VoiceStore.MIMO.equals(provider)?VoiceStore.profile(app,voiceId):null;
+        final String provider=providerOverride!=null?providerOverride:VoiceStore.provider(app);
+        final String voiceId=providerOverride!=null?(voiceOverride==null?"":voiceOverride):VoiceStore.voiceId(app);
+        final int rateIndex=rateOverride>=0?SpeechSettings.rateIndex(rateOverride):Store.prefs(app).getInt("speechRate",2);
+        speakProvider=provider;speakRate=rateIndex;
+        JSONObject profile=VoiceStore.MIMO.equals(provider)?VoiceStore.profile(app,voiceId):null;
         if(VoiceStore.MIMO.equals(provider)){
-            File cached=cacheFile(app,provider,voiceId,profile,value,context);
+            File cached=cacheFile(app,provider,voiceId,profile,value,context,rateIndex);
             if(cached.isFile()){playFile(cached,ticket);return;}
-            if(VoiceStore.speechKey(app).isEmpty()){toast("未配置 MiMo 语音 Key，已回退到系统英文声音");systemSpeak(value,ticket);return;}
+            if(VoiceStore.speechKey(app).isEmpty()){toast("未配置 MiMo 语音 Key，已回退到系统英文声音");systemSpeak(value,ticket,provider,rateIndex);return;}
             toast("正在生成语音…");pending=WORKER.submit(()->{
-                try{byte[] audio=MimoSpeechClient.synthesize(app,value,voiceId,profile,SpeechSettings.rate(Store.prefs(app).getInt("speechRate",2)));writeCache(cached,audio);MAIN.post(()->{if(valid(ticket))playFile(cached,ticket);});}
-                catch(Exception e){MAIN.post(()->{if(valid(ticket)){toast(e.getMessage()+"，已回退到系统英文声音");systemSpeak(value,ticket);}});}
+                try{byte[] audio=MimoSpeechClient.synthesize(app,value,voiceId,profile,SpeechSettings.rate(rateIndex));writeCache(cached,audio);MAIN.post(()->{if(valid(ticket))playFile(cached,ticket);});}
+                catch(Exception e){MAIN.post(()->{if(valid(ticket)){toast((e.getMessage()==null?"语音生成失败":e.getMessage())+"，已回退到系统英文声音");systemSpeak(value,ticket,provider,rateIndex);}});}
             });
-        }else systemSpeak(value,ticket);
+        }else systemSpeak(value,ticket,provider,rateIndex);
     }
 
-    private void systemSpeak(String text,int ticket){
+    private void systemSpeak(String text,int ticket,String provider,int rateIndex){
         if(!valid(ticket))return;
-        if(ttsReady&&tts!=null){tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"learning-"+ticket);return;}
-        pendingText=text;pendingGeneration=ticket;
+        String systemVoice=VoiceStore.SYSTEM.equals(provider)?Store.prefs(app).getString("speechVoice",""):"";
+        if(ttsReady&&tts!=null){
+            if(SpeechSettings.configure(tts,systemVoice,rateIndex))tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"learning-"+ticket);
+            else toast("设备的英文朗读不可用");
+            return;
+        }
+        pendingText=text;pendingGeneration=ticket;pendingRate=rateIndex;pendingSystemVoice=systemVoice;
         if(tts==null){
             ttsStarting=true;
             tts=new TextToSpeech(app,status->MAIN.post(()->{
                 ttsStarting=false;
                 if(!active||tts==null)return;
-                ttsReady=status==TextToSpeech.SUCCESS&&SpeechSettings.configure(tts,VoiceStore.SYSTEM.equals(VoiceStore.provider(app))?Store.prefs(app).getString("speechVoice",""):"",Store.prefs(app).getInt("speechRate",2));
+                ttsReady=status==TextToSpeech.SUCCESS&&SpeechSettings.configure(tts,pendingSystemVoice,pendingRate);
                 if(ttsReady&&pendingGeneration==generation&&pendingText!=null){String value=pendingText;pendingText=null;tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"learning-"+generation);}
                 else if(!ttsReady&&pendingGeneration==generation)toast("设备的英文朗读不可用");
             }));
@@ -60,8 +75,8 @@ final class SpeechManager {
 
     private void playFile(File file,int ticket){
         if(!valid(ticket))return;releasePlayer();player=new MediaPlayer();
-        try{player.setDataSource(file.getAbsolutePath());player.setOnPreparedListener(mp->{if(valid(ticket)&&player==mp)mp.start();});player.setOnCompletionListener(mp->{if(player==mp)releasePlayer();});player.setOnErrorListener((mp,what,extra)->{if(player==mp){releasePlayer();file.delete();if(valid(ticket))systemSpeak(currentText,ticket);}return true;});player.prepareAsync();}
-        catch(Exception e){releasePlayer();file.delete();if(valid(ticket)){toast("音频缓存无法播放，已回退到系统声音");systemSpeak(currentText,ticket);}}
+        try{player.setDataSource(file.getAbsolutePath());player.setOnPreparedListener(mp->{if(valid(ticket)&&player==mp)mp.start();});player.setOnCompletionListener(mp->{if(player==mp)releasePlayer();});player.setOnErrorListener((mp,what,extra)->{if(player==mp){releasePlayer();file.delete();if(valid(ticket))systemSpeak(currentText,ticket,speakProvider,speakRate);}return true;});player.prepareAsync();}
+        catch(Exception e){releasePlayer();file.delete();if(valid(ticket)){toast("音频缓存无法播放，已回退到系统声音");systemSpeak(currentText,ticket,speakProvider,speakRate);}}
     }
 
     void stop(){if(!active)return;generation++;stopCurrent();}
@@ -74,8 +89,8 @@ final class SpeechManager {
     static long clearCache(Context c){long freed=0;File[] files=cacheDir(c).listFiles();if(files!=null)for(File file:files)if(file.isFile()){freed+=file.length();file.delete();}return freed;}
     static long cacheSize(Context c){long size=0;File[] files=cacheDir(c).listFiles();if(files!=null)for(File file:files)if(file.isFile())size+=file.length();return size;}
     private static File cacheDir(Context c){File dir=new File(c.getCacheDir(),"speech");if(!dir.exists())dir.mkdirs();return dir;}
-    private static File cacheFile(Context c,String provider,String voiceId,JSONObject profile,String text,String context){
-        String version=profile==null?"":profile.optString("version");String model=profile==null?VoiceStore.model(c):"mimo-v2.5-tts-voiceclone";String key=provider+"|"+model+"|"+voiceId+"|"+version+"|"+text+"|en-US|"+SpeechSettings.rate(Store.prefs(c).getInt("speechRate",2))+"|"+context;
+    private static File cacheFile(Context c,String provider,String voiceId,JSONObject profile,String text,String context,int rateIndex){
+        String version=profile==null?"":profile.optString("version");String model=profile==null?VoiceStore.model(c):"mimo-v2.5-tts-voiceclone";String key=provider+"|"+model+"|"+voiceId+"|"+version+"|"+text+"|en-US|"+SpeechSettings.rate(rateIndex)+"|"+context;
         return new File(cacheDir(c),sha256(key)+".wav");
     }
     private static void writeCache(File target,byte[] audio)throws Exception{File tmp=new File(target.getParentFile(),target.getName()+".tmp");try(FileOutputStream out=new FileOutputStream(tmp)){out.write(audio);out.getFD().sync();}if(!tmp.renameTo(target)){tmp.delete();throw new IllegalStateException("语音缓存写入失败");}trimCache(target.getParentFile());}

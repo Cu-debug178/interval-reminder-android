@@ -46,6 +46,15 @@ final class AiPrompts {
     }
     static String userCreateGrade(String english,String sentence){return "目标单词："+english+"\n学生造句："+sentence+"\n请批改。";}
 
+    static String systemRelations(){
+        return "你是英语词汇关系助手。只从用户给出的已有单词里建议关联，不要发明词表之外的词。"+JSON_ONLY+
+            "格式：{\"links\":[{\"english\":\"已有单词原文\",\"kind\":\"meaning或form\",\"note\":\"不超过20字的中文说明\"}]}。"+
+            "meaning 表示语义相近，form 表示词形、拼写或派生相近。没有合适的就返回 {\"links\":[]}。";
+    }
+    static String userRelations(String english,String chinese,String catalog){
+        return "当前单词："+english+"\n释义："+chinese+"\n已有单词（只能从这里选）：\n"+catalog+"\n请挑选语义或词形上真正接近的词。";
+    }
+
     static String systemRoots(){
         return "你是英语词源与形近词助教。"+JSON_ONLY+
             "格式：{\"root\":\"词根说明\",\"derivatives\":[\"派生词\"],\"lookalikes\":[{\"word\":\"...\",\"diff\":\"区别\"}],\"tip\":\"记忆提示\"}。中文说明。";

@@ -49,6 +49,6 @@ final class VoiceStore {
     }
 
     static void delete(Context c,String id)throws Exception{
-        JSONArray old=profiles(c),next=new JSONArray();for(int i=0;i<old.length();i++){JSONObject p=old.optJSONObject(i);if(p==null)continue;if(id.equals(p.optString("id"))){new File(p.optString("path")).delete();}else next.put(p);}if(!Store.prefs(c).edit().putString("voiceProfiles",next.toString()).commit())throw new IllegalStateException("音色删除失败");if(id.equals(voiceId(c)))Store.prefs(c).edit().putString("voiceProvider",SYSTEM).putString("voiceId","").apply();
+        JSONArray old=profiles(c),next=new JSONArray();String path="";for(int i=0;i<old.length();i++){JSONObject p=old.optJSONObject(i);if(p==null)continue;if(id.equals(p.optString("id")))path=p.optString("path");else next.put(p);}boolean selected=id.equals(voiceId(c));android.content.SharedPreferences.Editor edit=Store.prefs(c).edit().putString("voiceProfiles",next.toString());if(selected)edit.putString("voiceProvider",SYSTEM).putString("voiceId","");if(!edit.commit())throw new IllegalStateException("音色删除失败");if(!path.isEmpty())new File(path).delete();
     }
 }

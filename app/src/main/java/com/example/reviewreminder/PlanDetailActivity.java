@@ -47,7 +47,8 @@ public final class PlanDetailActivity extends ScreenActivity {
     private void wordActions(JSONObject word,int index){
         String example=word.optString("example").trim();
         Sheet sheet=new Sheet(this).title(word.optString("english")).message(word.optString("chinese")+(example.isEmpty()?"":"\n\n"+example));
-        if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看连接图",()->openConnection(word));
+        sheet.item(R.drawable.ic_layers,"相关词","近义、词形与归纳",()->Motion.open(this,new Intent(this,RelationActivity.class).putExtra("wordId",Words.stableId(word)).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese"))));
+        if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看附带图片",()->openConnection(word));
         sheet.item(R.drawable.ic_volume_2,"朗读单词",()->speech.speak(word.optString("english"),"word"));
         sheet.item(R.drawable.ic_spell_check,"拼写此词",()->startSpelling(index));
         sheet.secondary("关闭",null).show();

@@ -12,7 +12,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.UUID;
 
-/** Private, app-relative connection images with path traversal checks. */
+/**
+ * Legacy per-card pictures. They are not the vocabulary graph: a missing or broken file must not
+ * block review, and new relations live in {@link WordRelations}.
+ */
 final class ConnectionImages {
     private static final String DIR="connection-images";
     private ConnectionImages(){}

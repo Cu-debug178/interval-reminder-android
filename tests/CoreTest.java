@@ -1,11 +1,14 @@
 import com.example.reviewreminder.IntervalPlan;
-import com.example.reviewreminder.WordParser;
+import com.example.reviewreminder.LegacyMigration;
+import com.example.reviewreminder.PlanIdentity;
 import com.example.reviewreminder.ReviewSession;
 import com.example.reviewreminder.SpellingPlan;
 import com.example.reviewreminder.SpellingSession;
+import com.example.reviewreminder.TaskIndex;
 import com.example.reviewreminder.TaskTitle;
+import com.example.reviewreminder.WordGraph;
+import com.example.reviewreminder.WordParser;
 import com.example.reviewreminder.Words;
-import com.example.reviewreminder.PlanIdentity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.*;
@@ -99,6 +102,115 @@ public final class CoreTest {
         check(Words.locate(cards,0,id)==1,"locate follows the id when the hinted slot is a different card");
         check(Words.locate(cards,5,null)==-1,"locate rejects a missing hint when no id is given");
 
+        Map<String,LegacyMigration.Value> legacy=new LinkedHashMap<>();
+        String tasksJson=new JSONArray().put(new JSONObject(named.toString())
+            .put("customMark","keep-me")
+            .put("words",new JSONArray().put(new JSONObject(card.toString()).put("example","An apple a day.").put("connectionImage","ci_old.jpg").put("extraSense","kept")))
+        ).toString();
+        legacy.put("tasks",new LegacyMigration.Value("string",tasksJson));
+        legacy.put("wrongWordStates",new LegacyMigration.Value("string",new JSONObject().put(id,new JSONObject().put("wrongCount",2).put("streak",1)).toString()));
+        legacy.put("spellingAttempts",new LegacyMigration.Value("string",new JSONArray().put(new JSONObject().put("wordId",id).put("at",7).put("type","wrong")).toString()));
+        legacy.put("voiceProfiles",new LegacyMigration.Value("string",new JSONArray().put(new JSONObject().put("id","voice-1").put("name","我的声音").put("mime","audio/mpeg")).toString()));
+        legacy.put("voiceProvider",new LegacyMigration.Value("string","mimo"));
+        legacy.put("voiceId",new LegacyMigration.Value("string","voice-1"));
+        legacy.put("speechVoice",new LegacyMigration.Value("string","en-US-local"));
+        legacy.put("speechRate",new LegacyMigration.Value("int","2"));
+        legacy.put("aiConfigs",new LegacyMigration.Value("string",new JSONArray().put(new JSONObject().put("id","cfg").put("name","课堂")).toString()));
+        legacy.put("aiActiveId",new LegacyMigration.Value("string","cfg"));
+        legacy.put("windows",new LegacyMigration.Value("string","07:30-08:30"));
+        legacy.put("nextId",new LegacyMigration.Value("long","41"));
+        legacy.put("optional",new LegacyMigration.Value("boolean","true"));
+        legacy.put("apiKey",new LegacyMigration.Value("string","device-only-secret"));
+        LegacyMigration.Bundle bundle=LegacyMigration.migrate(legacy);
+        check(bundle.prefs.size()==legacy.size(),"migration keeps every legacy preference");
+        for(Map.Entry<String,LegacyMigration.Value> entry:legacy.entrySet()){
+            check(entry.getValue().equals(bundle.prefs.get(entry.getKey())),"migration keeps "+entry.getKey());
+        }
+        check(bundle.prefs.get("tasks").text.equals(tasksJson),"tasks json is copied verbatim");
+        check(bundle.prefs.get("apiKey").text.equals("device-only-secret"),"device secrets stay in the local copy");
+        check(bundle.graph.getJSONArray("links").length()==0&&bundle.graph.getJSONArray("groups").length()==0,"pictures are not imported as relations");
+        check(bundle.index.tasks.size()==1&&bundle.index.cards.size()==1&&bundle.index.events.size()==1,"plans, cards and review events are indexed");
+        check(bundle.index.cards.get(0).json.contains("ci_old.jpg")&&bundle.index.cards.get(0).json.contains("extraSense"),"card json keeps the picture and unknown fields");
+        check(bundle.index.cards.get(0).wordId.equals(id),"indexed card uses the stable word id");
+        check(bundle.index.events.get(0).stage==1&&bundle.index.events.get(0).json.contains("stage"),"review history is indexed without dropping the event");
+        check(jsonEqual(new JSONArray(tasksJson),TaskIndex.rebuild(bundle.index)),"rebuilt tasks match the original json");
+        JSONObject rebuilt=TaskIndex.rebuild(bundle.index).getJSONObject(0);
+        check(rebuilt.optLong("created")==42&&rebuilt.optString("title").equals("新名称")&&rebuilt.optString("customMark").equals("keep-me"),"created time, title and extra task fields survive");
+        check(PlanIdentity.same(named,rebuilt),"a migrated plan still matches the backup of its original creation time");
+        Map<String,LegacyMigration.Value> older=new LinkedHashMap<>();
+        older.put("windows",new LegacyMigration.Value("string",""));
+        older.put("intervals",new LegacyMigration.Value("string",defaults));
+        LegacyMigration.Bundle partial=LegacyMigration.migrate(older);
+        check(partial.prefs.size()==2&&partial.index.tasks.isEmpty()&&partial.prefs.get("windows").text.isEmpty(),"an older install without tasks still migrates its settings");
+        check(LegacyMigration.encode(Integer.valueOf(2)).kind.equals("int")&&LegacyMigration.encode(Long.valueOf(41)).kind.equals("long")&&LegacyMigration.encode(Boolean.TRUE).text.equals("true"),"preference types stay distinct");
+
+        JSONArray catalog=new JSONArray()
+            .put(new JSONObject().put("wordId","w_act").put("english","act").put("chinese","行动"))
+            .put(new JSONObject().put("wordId","w_action").put("english","action").put("chinese","行动"))
+            .put(new JSONObject().put("wordId","w_ambition").put("english","ambition").put("chinese","雄心"))
+            .put(new JSONObject().put("wordId","w_ambitious").put("english","ambitious").put("chinese","有雄心的"))
+            .put(new JSONObject().put("wordId","w_apple").put("english","apple").put("chinese","苹果"))
+            .put(new JSONObject().put("wordId","w_apply").put("english","apply").put("chinese","申请"))
+            .put(new JSONObject().put("wordId","w_orange").put("english","orange").put("chinese","橙子"));
+        JSONArray form=WordGraph.suggestForm(catalog,"w_ambition","ambition",8);
+        check(containsEnglish(form,"ambitious")&&!containsEnglish(form,"orange"),"offline form suggestions find a derivation and skip an unrelated word");
+        JSONArray act=WordGraph.suggestForm(catalog,"w_act","act",8);
+        check(containsEnglish(act,"action"),"offline suggestions recognise a short derived form");
+        JSONArray nearApple=WordGraph.suggestForm(catalog,"w_apple","apple",8);
+        check(containsEnglish(nearApple,"apply")&&!containsEnglish(nearApple,"orange"),"offline suggestions catch a one-letter spelling neighbour");
+
+        JSONObject graph=WordGraph.empty();
+        String meaning=WordGraph.link(graph,"w_apple","w_orange",WordGraph.MEANING,"都是水果");
+        String again=WordGraph.link(graph,"w_orange","w_apple",WordGraph.MEANING,"重复");
+        check(meaning.equals(again)&&graph.getJSONArray("links").length()==1,"a meaning link is undirected and stored once");
+        WordGraph.link(graph,"w_apple","w_apply",WordGraph.FORM,"拼写接近");
+        check(graph.getJSONArray("links").length()==2,"meaning and form can both connect the same pair");
+        try{WordGraph.link(graph,"w_apple","w_apple",WordGraph.MEANING,"");throw new AssertionError("accepted a self link");}catch(IllegalArgumentException expected){checks++;}
+        String group=WordGraph.addGroup(graph,"水果",WordGraph.MEANING);
+        WordGraph.addMember(graph,group,"w_apple");
+        WordGraph.addMember(graph,group,"w_orange");
+        WordGraph.addMember(graph,group,"w_apple");
+        check(WordGraph.membersOf(graph,group).length()==2,"a word joins a group once");
+        String label=WordGraph.studyLabel(graph,catalog,"w_apple");
+        check(label.contains("近义")&&label.contains("orange")&&label.contains("词形")&&label.contains("apply"),"study label lists meaning and form neighbours");
+        JSONObject graphCopy=WordGraph.copy(graph);
+        check(WordGraph.unlink(graphCopy,meaning)&&graphCopy.getJSONArray("links").length()==1&&WordGraph.membersOf(graphCopy,group).length()==2,"removing a link keeps the other link and the group");
+        check(graph.getJSONArray("links").length()==2,"unlinking a copy does not change the saved graph");
+        JSONObject incoming=WordGraph.empty();
+        WordGraph.link(incoming,"w_act","w_action",WordGraph.FORM,"派生");
+        JSONObject merged=WordGraph.merge(graph,incoming,false);
+        check(graph.getJSONArray("links").length()==2&&merged.getJSONArray("links").length()==3&&WordGraph.membersOf(merged,group).length()==2,"merge adds relations without dropping existing ones");
+        JSONObject replaced=WordGraph.merge(graph,WordGraph.empty(),true);
+        check(replaced.getJSONArray("links").length()==0&&replaced.getJSONArray("groups").length()==0,"replace with an empty graph clears relations and leaves the caller's graph intact");
+        check(graph.getJSONArray("links").length()==2,"replace does not mutate the current graph");
+        try{WordGraph.merge(WordGraph.empty(),new JSONObject().put("links",new JSONArray().put(new JSONObject().put("a","w_apple").put("b","w_apple").put("kind","meaning"))),false);throw new AssertionError("accepted a backed-up self link");}catch(IllegalArgumentException expected){checks++;}
+
         System.out.println("CoreTest: "+checks+" checks passed");
+    }
+
+    static boolean jsonEqual(Object a,Object b) throws Exception {
+        if(a==b)return true;
+        if(a==null||b==null)return false;
+        if(a==JSONObject.NULL||b==JSONObject.NULL)return a==JSONObject.NULL&&b==JSONObject.NULL;
+        if(a instanceof JSONObject&&b instanceof JSONObject){
+            JSONObject left=(JSONObject)a,right=(JSONObject)b;
+            if(left.length()!=right.length())return false;
+            java.util.Iterator<String> keys=left.keys();
+            while(keys.hasNext()){String key=keys.next();if(!right.has(key)||!jsonEqual(left.get(key),right.get(key)))return false;}
+            return true;
+        }
+        if(a instanceof JSONArray&&b instanceof JSONArray){
+            JSONArray left=(JSONArray)a,right=(JSONArray)b;
+            if(left.length()!=right.length())return false;
+            for(int i=0;i<left.length();i++)if(!jsonEqual(left.get(i),right.get(i)))return false;
+            return true;
+        }
+        if(a instanceof Number&&b instanceof Number)return ((Number)a).doubleValue()==((Number)b).doubleValue();
+        return a.equals(b);
+    }
+
+    static boolean containsEnglish(JSONArray rows,String english){
+        for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(row!=null&&english.equals(row.optString("english")))return true;}
+        return false;
     }
 }
