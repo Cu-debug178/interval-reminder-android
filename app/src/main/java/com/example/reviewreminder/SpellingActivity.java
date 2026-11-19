@@ -20,7 +20,7 @@ public final class SpellingActivity extends ScreenActivity {
     private WordUi ui;private long taskId,historyAt;private int round;private String attemptId,sessionId,selectionId;
     private JSONArray words;private SpellingSession session;private boolean wrongMode,answered,answerWasCorrect,hintUsed;
     private int[] exampleIndices=new int[0];
-    private EditText answerInput;private String draft="";private SpeechManager speech;private final Feedback interaction=new Feedback();
+    private EditText answerInput;private String draft="",draftWordId="";private SpeechManager speech;private final Feedback interaction=new Feedback();
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);ui=new WordUi(this);interaction.prepare(this);speech=new SpeechManager(this);
@@ -39,16 +39,21 @@ public final class SpellingActivity extends ScreenActivity {
                 List<SpellingSession.Item> items=new ArrayList<>();for(int i=0;i<words.length();i++){JSONObject word=words.optJSONObject(i);if(word==null)continue;items.add(new SpellingSession.Item(Words.stableId(word),WrongBook.stateForWord(this,word).optInt("streak",word.optInt("spellingStreak",0))));}
                 session=new SpellingSession(items,wrongMode);
             }
-            if(state!=null)draft=state.getString("draft","");else if(saved!=null&&saved.optString("hintWord").equals(session.ended()?"":session.current()))hintUsed=saved.optBoolean("hintUsed",false);
+            String currentId=session.ended()?"":session.current();
+            boolean storedHint=saved!=null&&!currentId.isEmpty()&&currentId.equals(saved.optString("hintWord"))&&saved.optBoolean("hintUsed");
+            if(state!=null){hintUsed=state.getBoolean("hintUsed",false)||storedHint;String owned=state.getString("draftWordId","");draft=currentId.equals(owned)?state.getString("draft",""):"";}
+            else if(storedHint)hintUsed=true;
             saveProgress();show();
         }catch(Exception e){ui.toast(e.getMessage());finish();}
     }
 
-    @Override protected void onSaveInstanceState(Bundle out){out.putString("sessionId",sessionId);if(answerInput!=null)out.putString("draft",answerInput.getText().toString());super.onSaveInstanceState(out);}
+    @Override protected void onSaveInstanceState(Bundle out){out.putString("sessionId",sessionId);if(answerInput!=null)out.putString("draft",answerInput.getText().toString());out.putString("draftWordId",draftWordId);out.putBoolean("hintUsed",hintUsed);super.onSaveInstanceState(out);}
 
     private void show(){
+        int dropped=0;while(!session.ended()&&find(session.current())==null){if(!session.abandon(session.current())||++dropped>10000){ui.toast("有单词已不在本次练习中");finish();return;}}
+        if(dropped>0)saveProgress();
         if(session.ended()){summary();return;}
-        String wordId=session.current();JSONObject word=find(wordId);if(word==null){session.skip(wordId);saveProgress();show();return;}
+        String wordId=session.current();JSONObject word=find(wordId);draftWordId=wordId;
         answered=false;answerWasCorrect=false;
         ui.start(wrongMode?"错词强化":"拼写练习");
         String progress="已完成 "+session.finishedCount()+" / "+session.initialTotal()+" 个";
@@ -66,7 +71,7 @@ public final class SpellingActivity extends ScreenActivity {
         LinearLayout secondary=ui.row();secondary.addView(ui.ghostButton("跳过此词",v->{if(!answered)skip(word,false,null,null);}),new LinearLayout.LayoutParams(0,ui.dp(48),1));LinearLayout.LayoutParams revealLp=new LinearLayout.LayoutParams(0,ui.dp(48),1);revealLp.leftMargin=ui.dp(8);secondary.addView(ui.ghostButton("查看答案",v->{if(!answered)skip(word,true,result,submit);}),revealLp);ui.body.addView(secondary);
         submit.setOnClickListener(v->{
             if(answered){draft="";show();return;}String typed=answer.getText().toString().trim();if(typed.isEmpty()){answer.setError("请输入英文单词");return;}
-            String before=session.snapshot();String expected=word.optString("english").trim();boolean correct=expected.equalsIgnoreCase(typed);String id=Words.stableId(word);SpellingSession.Result outcome=session.submit(id,correct,hintUsed);if(!outcome.accepted)return;
+            String before=session.snapshot();String expected=word.optString("english").trim();boolean correct=expected.equalsIgnoreCase(typed);String id=Words.stableId(word);boolean assisted=hintUsed;SpellingSession.Result outcome=session.submit(id,correct,assisted);if(!outcome.accepted)return;
             try{applyOutcome(word,outcome);}catch(Exception e){session=SpellingSession.restore(before);ui.toast("结果保存失败，请重试："+e.getMessage());return;}
             answered=true;answerWasCorrect=correct;answer.setEnabled(false);hintUsed=false;saveProgress();
             if(correct){result.setText(outcome.independent?"正确 · 已计入独立拼写":"拼写正确 · 使用提示，稍后仍需独立复习");speech.speak(expected,"spelling_success");}
@@ -79,14 +84,14 @@ public final class SpellingActivity extends ScreenActivity {
     private void applyOutcome(JSONObject word,SpellingSession.Result outcome)throws Exception{
         long sourceTask=word.optLong("_taskId",taskId);int index=word.optInt("_wordIndex",-1);if(sourceTask<=0||index<0)return;
         String event="spelling:"+attemptId+":"+session.attempts()+":"+outcome.wordId;
-        if(!outcome.correct)WrongBook.record(this,sourceTask,index,round,null,event);
-        else if(outcome.independent)WrongBook.independent(this,sourceTask,index,null,event);
-        else WrongBook.assisted(this,sourceTask,index,null,event);
+        if(!outcome.correct)WrongBook.record(this,sourceTask,index,round,null,event,outcome.wordId);
+        else if(outcome.independent)WrongBook.independent(this,sourceTask,index,null,event,outcome.wordId);
+        else WrongBook.assisted(this,sourceTask,index,null,event,outcome.wordId);
     }
 
     private void skip(JSONObject word,boolean reveal,TextView result,Button submit){
         String before=session.snapshot(),id=Words.stableId(word);if(!session.skip(id))return;
-        try{long sourceTask=word.optLong("_taskId",taskId);int index=word.optInt("_wordIndex",-1);if(sourceTask>0&&index>=0)WrongBook.reset(this,sourceTask,index,null,"spelling:"+attemptId+":"+session.attempts()+":"+id);}catch(Exception e){session=SpellingSession.restore(before);ui.toast(e.getMessage());return;}
+        try{long sourceTask=word.optLong("_taskId",taskId);int index=word.optInt("_wordIndex",-1);if(sourceTask>0&&index>=0)WrongBook.reset(this,sourceTask,index,null,"spelling:"+attemptId+":"+session.attempts()+":"+id,id);}catch(Exception e){session=SpellingSession.restore(before);ui.toast(e.getMessage());return;}
         hintUsed=false;saveProgress();if(reveal){answered=true;answerWasCorrect=false;answerInput.setEnabled(false);result.setText("正确拼写："+word.optString("english")+"\n已查看答案，本词不会计入完成");submit.setText(session.ended()?"查看结果":"下一个");}else{draft="";show();}
     }
 

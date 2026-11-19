@@ -85,6 +85,12 @@ public final class SpellingSession {
         State state=queue.peek();attempts++;skippedCount++;state.streak=0;state.remaining=wrongMode?2:1;requeue();return true;
     }
 
+    /** Drop a word that is no longer in the selection so the queue cannot spin on it. */
+    public boolean abandon(String expectedId){
+        if(ended()||expectedId==null||!expectedId.equals(current()))return false;
+        State state=queue.removeFirst();states.remove(state.id);if(initialTotal>0)initialTotal--;return true;
+    }
+
     private void requeue(){
         State state=queue.removeFirst();
         queue.add(Math.min(3,queue.size()),state);

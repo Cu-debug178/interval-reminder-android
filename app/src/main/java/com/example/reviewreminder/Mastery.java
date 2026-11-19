@@ -24,15 +24,17 @@ final class Mastery {
     }
 
     /** Only the first attempt in a review pass may raise mastery; retries do not. */
-    static void applyAnswer(Context context,long taskId,int wordIndex,boolean known,boolean firstAttempt,JSONArray sessionWords)throws Exception{
+    static void applyAnswer(Context context,long taskId,int wordIndex,boolean known,boolean firstAttempt,JSONArray sessionWords)throws Exception{applyAnswer(context,taskId,wordIndex,known,firstAttempt,sessionWords,null);}
+    static void applyAnswer(Context context,long taskId,int wordIndex,boolean known,boolean firstAttempt,JSONArray sessionWords,String wordId)throws Exception{
         JSONArray tasks=Store.tasks(context);JSONObject task=Store.find(tasks,taskId);
         if(task==null)throw new IllegalStateException("复习任务已不存在");
         JSONArray words=task.optJSONArray("words");
-        if(words==null||wordIndex<0||wordIndex>=words.length())throw new IllegalStateException("单词卡已不存在");
-        JSONObject saved=new JSONObject(words.getJSONObject(wordIndex).toString());
+        int index=Words.locate(words,wordIndex,wordId);
+        if(index<0)throw new IllegalStateException("单词卡已不存在");
+        JSONObject saved=new JSONObject(words.getJSONObject(index).toString());
         if(known){if(firstAttempt)remember(saved);}else forget(saved);
-        words.put(wordIndex,saved);task.put("words",words);Store.save(context,tasks);
-        if(sessionWords!=null&&wordIndex<sessionWords.length())sessionWords.put(wordIndex,new JSONObject(saved.toString()));
+        words.put(index,saved);task.put("words",words);Store.save(context,tasks);
+        if(sessionWords!=null){int sessionIndex=Words.locate(sessionWords,wordIndex,wordId);if(sessionIndex>=0)sessionWords.put(sessionIndex,new JSONObject(saved.toString()));}
     }
 
     static double average(JSONArray words){

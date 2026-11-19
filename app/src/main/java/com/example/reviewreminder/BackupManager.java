@@ -35,7 +35,7 @@ final class BackupManager {
     }
 
     static final class Result {
-        int tasksAdded,wordsAdded,exercises,profiles,images,sessions,wrongStates;boolean replaced;
+        int tasksAdded,wordsAdded,exercises,profiles,images,sessions,wrongStates;boolean replaced;String warning="";
         String summary(){return replaced?"已替换数据：":"已合并数据：";}
     }
 
@@ -147,28 +147,42 @@ final class BackupManager {
 
         JSONArray currentProfiles=replace?new JSONArray():VoiceStore.profiles(c);
         JSONArray profiles=replace?new JSONArray():new JSONArray();if(!replace)for(int i=0;i<currentProfiles.length();i++){JSONObject p=currentProfiles.optJSONObject(i);if(p!=null)profiles.put(new JSONObject(p.toString()));}
-        for(int i=0;i<backup.voiceProfiles.length();i++){
-            JSONObject p=cleanObject(backup.voiceProfiles.getJSONObject(i));String id=p.optString("id");if(id.isEmpty()||findProfile(profiles,id)!=null)continue;
-            File sample=restoreVoiceSample(c,id,backup.audio.optJSONObject(id));if(sample==null){File existing=voiceFile(c,id,p.optString("mime"));if(existing.isFile())sample=existing;}if(sample==null)continue;
-            p.put("path",sample.getAbsolutePath());profiles.put(p);result.profiles++;
+        List<PendingFile> pending=new ArrayList<>();boolean committed=false;
+        try{
+            for(int i=0;i<backup.voiceProfiles.length();i++){
+                JSONObject p=cleanObject(backup.voiceProfiles.getJSONObject(i));String id=p.optString("id");if(id.isEmpty()||findProfile(profiles,id)!=null)continue;
+                File target=voiceFile(c,id,p.optString("mime"));JSONObject audio=backup.audio.optJSONObject(id);
+                if(audio!=null){PendingFile staged=stageVoice(c,target,audio);if(staged==null)continue;pending.add(staged);p.put("path",staged.target.getAbsolutePath());}
+                else if(target!=null&&target.isFile())p.put("path",target.getAbsolutePath());
+                else continue;
+                profiles.put(p);result.profiles++;
+            }
+            for(Iterator<String> keys=backup.images.keys();keys.hasNext();){String path=keys.next();String data=backup.images.optString(path,"");if(data.isEmpty())continue;ConnectionImages.StagedFile staged=ConnectionImages.stage(c,path,data);pending.add(new PendingFile(staged.temp,staged.target));result.images++;}
+            android.content.SharedPreferences prefs=Store.prefs(c);android.content.SharedPreferences.Editor edit=prefs.edit()
+                .putString("tasks",nextTasks.toString()).putString("wrongWordStates",wrongStates.toString()).putString("spellingAttempts",attempts.toString())
+                .putString("trainingSelections",selections.toString()).putString("trainingSelectionOrder",order.toString())
+                .putString("translationExercises",exercises.toString()).putString("voiceProfiles",profiles.toString())
+                .putLong("nextId",Math.max(max,prefs.getLong("nextId",0))).remove(WrongBook.LEGACY_MIGRATED);
+            if(replace){
+                JSONObject voice=backup.voiceSettings;String provider=voice.optString("provider",VoiceStore.SYSTEM);String voiceId=voice.optString("voiceId","");if(!VoiceStore.SYSTEM.equals(provider)&&findProfile(profiles,voiceId)==null){provider=VoiceStore.SYSTEM;voiceId="";}
+                edit.putString("voiceProvider",provider).putString("voiceId",voiceId).putInt("speechRate",Math.max(0,Math.min(4,voice.optInt("speechRate",2)))).putString("mimoSpeechBase",voice.optString("mimoSpeechBase",AiSettings.MIMO_URL)).putString("mimoSpeechModel",voice.optString("mimoSpeechModel","mimo-v2.5-tts"));
+                Iterator<String> old=prefs.getAll().keySet().iterator();while(old.hasNext()){String key=old.next();if(key.startsWith(ACTIVE))edit.remove(key);}
+            }
+            for(Iterator<String> keys=active.keys();keys.hasNext();){String key=keys.next();edit.putString(ACTIVE+key,active.optJSONObject(key).toString());}
+            if(!edit.commit())throw new IllegalStateException("备份数据未能写入设备");
+            committed=true;publishFiles(pending);reschedule(c,result,currentTasks,nextTasks,replace);return result;
+        }catch(Exception e){
+            if(!committed){discardFiles(pending);throw e;}
+            result.warning="数据已写入，但部分附件未能恢复："+(e.getMessage()==null?"写入失败":e.getMessage());
+            reschedule(c,result,currentTasks,nextTasks,replace);return result;
         }
-        for(Iterator<String> keys=backup.images.keys();keys.hasNext();){String path=keys.next();String data=backup.images.optString(path,"");if(data.isEmpty())continue;ConnectionImages.restore(c,path,data);result.images++;}
-        android.content.SharedPreferences prefs=Store.prefs(c);android.content.SharedPreferences.Editor edit=prefs.edit()
-            .putString("tasks",nextTasks.toString()).putString("wrongWordStates",wrongStates.toString()).putString("spellingAttempts",attempts.toString())
-            .putString("trainingSelections",selections.toString()).putString("trainingSelectionOrder",order.toString())
-            .putString("translationExercises",exercises.toString()).putString("voiceProfiles",profiles.toString())
-            .putLong("nextId",Math.max(max,prefs.getLong("nextId",0)));
-        if(replace){
-            JSONObject voice=backup.voiceSettings;String provider=voice.optString("provider",VoiceStore.SYSTEM);String voiceId=voice.optString("voiceId","");if(!VoiceStore.SYSTEM.equals(provider)&&findProfile(profiles,voiceId)==null){provider=VoiceStore.SYSTEM;voiceId="";}
-            edit.putString("voiceProvider",provider).putString("voiceId",voiceId).putInt("speechRate",Math.max(0,Math.min(4,voice.optInt("speechRate",2)))).putString("mimoSpeechBase",voice.optString("mimoSpeechBase",AiSettings.MIMO_URL)).putString("mimoSpeechModel",voice.optString("mimoSpeechModel","mimo-v2.5-tts"));
-            Iterator<String> old=prefs.getAll().keySet().iterator();while(old.hasNext()){String key=old.next();if(key.startsWith(ACTIVE))edit.remove(key);}
-        }
-        for(Iterator<String> keys=active.keys();keys.hasNext();){String key=keys.next();edit.putString(ACTIVE+key,active.optJSONObject(key).toString());}
-        if(!edit.commit())throw new IllegalStateException("备份数据未能写入设备");
+    }
 
-        if(replace){for(int i=0;i<currentTasks.length();i++){JSONObject task=currentTasks.optJSONObject(i);if(task!=null)Alarms.cancel(c,task.optLong("id"));}}
-        for(int i=0;i<nextTasks.length();i++){JSONObject task=nextTasks.optJSONObject(i);if(task==null)continue;boolean fresh=replace||!findLong(currentTasks,task.optLong("id"));if(fresh&&!task.optBoolean("done"))Alarms.schedule(c,task);}
-        return result;
+    private static void reschedule(Context c,Result result,JSONArray previous,JSONArray next,boolean replace){
+        try{
+            if(replace){for(int i=0;i<previous.length();i++){JSONObject task=previous.optJSONObject(i);if(task!=null)Alarms.cancel(c,task.optLong("id"));}}
+            for(int i=0;i<next.length();i++){JSONObject task=next.optJSONObject(i);if(task==null)continue;boolean fresh=replace||!findLong(previous,task.optLong("id"));if(fresh&&!task.optBoolean("done"))Alarms.schedule(c,task);}
+        }catch(Exception e){String note="数据已写入，但提醒未能全部重新安排："+(e.getMessage()==null?"系统限制":e.getMessage());result.warning=result.warning==null||result.warning.isEmpty()?note:result.warning+" "+note;}
     }
 
     private static JSONObject activeSessions(Context c)throws Exception{JSONObject out=new JSONObject();Map<String,?> all=Store.prefs(c).getAll();for(Map.Entry<String,?> entry:all.entrySet()){String key=entry.getKey();if(!key.startsWith(ACTIVE)||!(entry.getValue() instanceof String))continue;try{out.put(key.substring(ACTIVE.length()),new JSONObject((String)entry.getValue()));}catch(Exception ignored){}}return out;}
@@ -211,5 +225,8 @@ final class BackupManager {
     private static boolean containsExercise(JSONArray array,String id){for(int i=0;i<array.length();i++){JSONObject item=array.optJSONObject(i);if(item!=null&&id.equals(item.optString("id")))return true;}return false;}
     private static JSONObject findProfile(JSONArray profiles,String id){for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p!=null&&id.equals(p.optString("id")))return p;}return null;}
     private static File voiceFile(Context c,String id,String mime){String safe=id.replaceAll("[^A-Za-z0-9_-]","");if(safe.isEmpty())return null;String extension="audio/wav".equals(mime)?".wav":".mp3";return new File(new File(c.getFilesDir(),"voices"),safe+extension);}
-    private static File restoreVoiceSample(Context c,String id,JSONObject sample)throws Exception{if(sample==null)return null;String mime=sample.optString("mime");File target=voiceFile(c,id,mime);if(target==null)return null;byte[] bytes=Base64Compat.decode(sample.optString("data",""));if(bytes.length==0)throw new IllegalArgumentException("参考音频为空");if(!target.getParentFile().exists()&&!target.getParentFile().mkdirs())throw new IllegalStateException("无法创建音色目录");File tmp=new File(target.getParentFile(),target.getName()+".tmp");try(FileOutputStream out=new FileOutputStream(tmp)){out.write(bytes);out.getFD().sync();}if(!tmp.renameTo(target)){tmp.delete();throw new IllegalStateException("参考音频恢复失败");}return target;}
+    private static final class PendingFile {final File temp,target;PendingFile(File temp,File target){this.temp=temp;this.target=target;}}
+    private static PendingFile stageVoice(Context c,File target,JSONObject sample)throws Exception{if(sample==null||target==null)return null;byte[] bytes=Base64Compat.decode(sample.optString("data",""));if(bytes.length==0)throw new IllegalArgumentException("参考音频为空");File dir=target.getParentFile();if(!dir.exists()&&!dir.mkdirs())throw new IllegalStateException("无法创建音色目录");File tmp=new File(dir,target.getName()+".part");try(FileOutputStream out=new FileOutputStream(tmp)){out.write(bytes);out.getFD().sync();}return new PendingFile(tmp,target);}
+    private static void publishFiles(List<PendingFile> pending)throws Exception{for(PendingFile file:pending)if(!ConnectionImages.publish(file.temp,file.target))throw new IllegalStateException("备份附件未能写入设备");}
+    private static void discardFiles(List<PendingFile> pending){for(PendingFile file:pending)if(file.temp.exists()&&!file.temp.equals(file.target))file.temp.delete();}
 }
