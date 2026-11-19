@@ -41,8 +41,8 @@ public final class SpellingActivity extends ScreenActivity {
             }
             String currentId=session.ended()?"":session.current();
             boolean storedHint=saved!=null&&!currentId.isEmpty()&&currentId.equals(saved.optString("hintWord"))&&saved.optBoolean("hintUsed");
-            if(state!=null){hintUsed=state.getBoolean("hintUsed",false)||storedHint;String owned=state.getString("draftWordId","");draft=currentId.equals(owned)?state.getString("draft",""):"";}
-            else if(storedHint)hintUsed=true;
+            if(state!=null){String owned=state.getString("draftWordId","");if(currentId.equals(owned)){draft=state.getString("draft","");draftWordId=owned;hintUsed=state.getBoolean("hintUsed",false)||storedHint;}else if(storedHint){hintUsed=true;draftWordId=currentId;}}
+            else if(storedHint){hintUsed=true;draftWordId=currentId;}
             saveProgress();show();
         }catch(Exception e){ui.toast(e.getMessage());finish();}
     }
@@ -51,7 +51,7 @@ public final class SpellingActivity extends ScreenActivity {
 
     private void show(){
         int dropped=0;while(!session.ended()&&find(session.current())==null){if(!session.abandon(session.current())||++dropped>10000){ui.toast("有单词已不在本次练习中");finish();return;}}
-        if(dropped>0)saveProgress();
+        if(dropped>0){String now=session.ended()?"":session.current();if(!now.equals(draftWordId)){draft="";hintUsed=false;draftWordId=now;}saveProgress();}
         if(session.ended()){summary();return;}
         String wordId=session.current();JSONObject word=find(wordId);draftWordId=wordId;
         answered=false;answerWasCorrect=false;

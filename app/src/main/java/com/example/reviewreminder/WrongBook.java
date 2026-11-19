@@ -87,11 +87,12 @@ final class WrongBook {
         }
         for(Map.Entry<String,JSONObject> entry:legacy.entrySet()){
             JSONObject fromWord=entry.getValue();JSONObject existing=all.optJSONObject(entry.getKey());
-            if(existing==null){fromWord.put("mastered",fromWord.optInt("streak")>=2);all.put(entry.getKey(),fromWord);}
-            else if(!existing.has("wrongCount")){
-                int wrongCount=Math.max(existing.optInt("wrongCount"),fromWord.optInt("wrongCount"));int streak=Math.max(existing.optInt("streak"),fromWord.optInt("streak"));
-                existing.put("wrongCount",wrongCount).put("wrongAt",Math.max(existing.optLong("wrongAt"),fromWord.optLong("wrongAt"))).put("wrongRounds",unionRounds(existing.optJSONArray("wrongRounds"),fromWord.optJSONArray("wrongRounds"))).put("bookmarked",existing.optBoolean("bookmarked")||wrongCount>0).put("streak",streak).put("mastered",streak>=2);
-            }
+            if(existing==null){fromWord.put("mastered",fromWord.optInt("streak")>=2);all.put(entry.getKey(),fromWord);continue;}
+            boolean cleared=existing.has("wrongCount")&&existing.optInt("wrongCount")==0&&!existing.optBoolean("bookmarked")&&existing.optInt("streak")==0&&existing.optLong("wrongAt")==0;
+            if(cleared)continue;
+            int wrongCount=Math.max(existing.optInt("wrongCount"),fromWord.optInt("wrongCount"));
+            existing.put("wrongCount",wrongCount).put("wrongAt",Math.max(existing.optLong("wrongAt"),fromWord.optLong("wrongAt"))).put("wrongRounds",unionRounds(existing.optJSONArray("wrongRounds"),fromWord.optJSONArray("wrongRounds"))).put("bookmarked",existing.optBoolean("bookmarked")||wrongCount>0);
+            if(!existing.has("streak")){int streak=Math.max(0,fromWord.optInt("streak"));existing.put("streak",streak).put("mastered",streak>=2);}
         }
         boolean mirrored=false;
         for(int i=0;i<tasks.length();i++){
