@@ -76,7 +76,7 @@ public final class BackupActivity extends ScreenActivity {
             .secondary("取消",null).show();
     }
     private void confirmReplace(BackupManager.Backup backup){
-        Sheet.confirm(this,"确认替换全部数据？","当前设备上的计划、复习进度、错词历史、拼写进度、翻译题和音色配置将被备份内容替换。API Key 与提醒时段等设置不会改动。此操作不能撤销。","取消","确认替换",true,()->apply(backup,true));
+        Sheet.confirm(this,"确认替换全部数据？","当前设备上的计划、复习进度、错词历史、拼写进度、翻译题和音色配置将被备份内容替换。API Key、语音服务地址和提醒时段不会改动。此操作不能撤销。","取消","确认替换",true,()->apply(backup,true));
     }
     private void apply(BackupManager.Backup backup,boolean replace){
         if(busy)return;setBusy(true,replace?"正在替换数据…":"正在合并数据…");

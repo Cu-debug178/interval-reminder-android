@@ -165,7 +165,8 @@ final class BackupManager {
                 .putLong("nextId",Math.max(max,prefs.getLong("nextId",0))).remove(WrongBook.LEGACY_MIGRATED);
             if(replace){
                 JSONObject voice=backup.voiceSettings;String provider=voice.optString("provider",VoiceStore.SYSTEM);String voiceId=voice.optString("voiceId","");if(!VoiceStore.SYSTEM.equals(provider)&&!VoiceStore.preset(voiceId)&&findProfile(profiles,voiceId)==null){provider=VoiceStore.SYSTEM;voiceId="";}
-                edit.putString("voiceProvider",provider).putString("voiceId",voiceId).putInt("speechRate",Math.max(0,Math.min(4,voice.optInt("speechRate",2)))).putString("mimoSpeechBase",voice.optString("mimoSpeechBase",AiSettings.MIMO_URL)).putString("mimoSpeechModel",voice.optString("mimoSpeechModel","mimo-v2.5-tts"));
+                // Keep this device's speech base URL. The backup must not retarget the on-device API key.
+                edit.putString("voiceProvider",provider).putString("voiceId",voiceId).putInt("speechRate",Math.max(0,Math.min(4,voice.optInt("speechRate",2)))).putString("mimoSpeechModel",voice.optString("mimoSpeechModel","mimo-v2.5-tts"));
                 Iterator<String> old=prefs.getAll().keySet().iterator();while(old.hasNext()){String key=old.next();if(key.startsWith(ACTIVE))edit.remove(key);}
             }
             for(Iterator<String> keys=active.keys();keys.hasNext();){String key=keys.next();edit.putString(ACTIVE+key,active.optJSONObject(key).toString());}
