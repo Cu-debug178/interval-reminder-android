@@ -105,6 +105,8 @@ final class WordUi {
      */
     private void armFooter(){if(footer instanceof Column)((Column)footer).arm(Theme.ENTER_MS+40);}
 
+    void systemBars(){systemBars(a);}
+
     static void systemBars(Activity a){
         a.getWindow().setStatusBarColor(Theme.BG);
         a.getWindow().setNavigationBarColor(Theme.BG);
@@ -369,6 +371,17 @@ final class WordUi {
     ImageView icon(int res,int color){ImageView i=new ImageView(a);i.setImageResource(res);i.setImageTintList(ColorStateList.valueOf(color));return i;}
 
     // ── Small parts ──────────────────────────────────────────────────────────
+    ProgressBar progress(int percent){
+        ProgressBar bar=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);
+        int value=Math.max(0,Math.min(100,percent));
+        bar.setProgressTintList(ColorStateList.valueOf(Theme.PRIMARY));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(Theme.SUNK));
+        bar.setProgress(value);
+        bar.setContentDescription("学习进度 "+value+"%");
+        return bar;
+    }
+
     /** Status chip: compact, quiet label (e.g. “第 2 轮”, “已到期”). */
     TextView chip(String value,int fill,int fg){
         TextView t=type(value,Theme.T_CAPTION);t.setTextColor(fg);t.setTypeface(Theme.MEDIUM);

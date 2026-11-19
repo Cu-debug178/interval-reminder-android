@@ -14,6 +14,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -64,12 +65,12 @@ public final class WrongBookActivity extends ScreenActivity {
 
         if(rows.isEmpty()){
             ui.gap(body,Theme.SPACE_16);
-            body.addView(ui.empty(R.drawable.ic_book_x,"还没有错词","复习时选择“忘记了”或拼写错误的单词会自动收录到这里。",null,null),WordUi.lp());
+            body.addView(ui.empty(R.drawable.ic_book_x,"还没有错词","复习时选择“忘记了”，或拼写没有独立答对，都会收录到这里。连续两次独立拼对记为已掌握。",null,null),WordUi.lp());
         }else{
             body.addView(overview(rows.size()),WordUi.lp());
             ui.section(body,"需要巩固","掌握度从低到高");
             LinearLayout group=ui.group();
-            for(Object[] row:rows)addWord(group,(JSONObject)row[0],(JSONObject)row[1],(Integer)row[2]);
+            for(Object[] row:rows)addWord(group,(JSONObject)row[0],(JSONObject)row[1],(Integer)row[2],(JSONObject)row[3]);
             body.addView(group,WordUi.lp());
             ui.note(body,"点按单词可以拼写、练习义项或查看 AI 分析。");
         }
@@ -80,10 +81,10 @@ public final class WrongBookActivity extends ScreenActivity {
         rendered=true;
     }
 
-    /** Same selection and ordering as before: words with wrongCount>0, mastery ascending, then most-missed first. */
+    /** One row per stable word id. Global wrong-book state is the source of truth. */
     private List<Object[]> collectWrongWords(){
+        LinkedHashMap<String,Object[]> unique=new LinkedHashMap<>();
         JSONArray tasks=Store.tasks(this);
-        List<Object[]> rows=new ArrayList<>();
         for(int i=0;i<tasks.length();i++){
             JSONObject task=tasks.optJSONObject(i);
             if(task==null)continue;
@@ -91,14 +92,19 @@ public final class WrongBookActivity extends ScreenActivity {
             if(words==null)continue;
             for(int j=0;j<words.length();j++){
                 JSONObject word=words.optJSONObject(j);
-                if(word==null||word.optInt("wrongCount")<=0)continue;
-                rows.add(new Object[]{task,word,j});
+                if(word==null)continue;
+                JSONObject state=WrongBook.stateForWord(this,word);
+                if(!WrongBook.inBook(state))continue;
+                String id=Words.stableId(word);
+                if(!unique.containsKey(id))unique.put(id,new Object[]{task,word,j,state});
             }
         }
+        List<Object[]> rows=new ArrayList<>(unique.values());
         Collections.sort(rows,(a,b)->{
-            int ma=Mastery.level((JSONObject)a[1]),mb=Mastery.level((JSONObject)b[1]);
-            if(ma!=mb)return Integer.compare(ma,mb);
-            return Integer.compare(((JSONObject)b[1]).optInt("wrongCount"),((JSONObject)a[1]).optInt("wrongCount"));
+            JSONObject sa=(JSONObject)a[3],sb=(JSONObject)b[3];
+            int streak=Integer.compare(sa.optInt("streak",0),sb.optInt("streak",0));
+            if(streak!=0)return streak;
+            return Integer.compare(sb.optInt("wrongCount",0),sa.optInt("wrongCount",0));
         });
         return rows;
     }
@@ -131,7 +137,7 @@ public final class WrongBookActivity extends ScreenActivity {
         return box;
     }
 
-    private void addWord(LinearLayout group,JSONObject task,JSONObject word,int index){
+    private void addWord(LinearLayout group,JSONObject task,JSONObject word,int index,JSONObject state){
         ui.divide(group,Theme.ROW_PAD);
         LinearLayout row=ui.row();
         row.setGravity(Gravity.TOP);
@@ -155,8 +161,9 @@ public final class WrongBookActivity extends ScreenActivity {
             copy.addView(chinese,cp);
         }
 
-        String rounds=roundsText(word);
-        TextView record=ui.type(rounds.isEmpty()?task.optString("title"):task.optString("title")+" · "+rounds,Theme.T_CAPTION);
+        String rounds=roundsText(state);
+        String status=WrongBook.status(state)+" · 连续独立正确 "+Math.min(2,state.optInt("streak",0))+"/2";
+        TextView record=ui.type(rounds.isEmpty()?task.optString("title")+" · "+status:task.optString("title")+" · "+status+" · "+rounds,Theme.T_CAPTION);
         record.setMaxLines(2);
         record.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams rp=WordUi.lp();
@@ -180,7 +187,7 @@ public final class WrongBookActivity extends ScreenActivity {
         // Right: how often, and how well it is known now.
         LinearLayout side=ui.col();
         side.setGravity(Gravity.END);
-        int count=word.optInt("wrongCount");
+        int count=state.optInt("wrongCount",word.optInt("wrongCount"));
         boolean heavy=count>=3;
         TextView chip=ui.chip("错误 "+count+" 次",heavy?Theme.DANGER_SOFT:Theme.SUNK,heavy?Theme.DANGER:Theme.INK_2);
         side.addView(chip,new LinearLayout.LayoutParams(-2,-2));
@@ -199,15 +206,15 @@ public final class WrongBookActivity extends ScreenActivity {
         long taskId=task.optLong("id");
         row.setClickable(true);
         row.setFocusable(true);
-        row.setOnClickListener(v->wordActions(taskId,index,word));
+        row.setOnClickListener(v->wordActions(taskId,index,word,state));
         Theme.applyRipple(row,null,Theme.RIPPLE_LIGHT);
         Motion.press(row,.985f);
         group.addView(row,WordUi.lp());
     }
 
-    /** “出错于 第1轮、第3轮” — the round list format is unchanged; empty when no rounds were recorded. */
-    private static String roundsText(JSONObject word){
-        JSONArray rounds=word.optJSONArray("wrongRounds");
+    /** “出错于 第1轮、第3轮” — empty when no rounds were recorded. */
+    private static String roundsText(JSONObject state){
+        JSONArray rounds=state==null?null:state.optJSONArray("wrongRounds");
         StringBuilder labels=new StringBuilder();
         if(rounds!=null){
             for(int i=0;i<rounds.length();i++){
@@ -255,26 +262,23 @@ public final class WrongBookActivity extends ScreenActivity {
 
     // ── Word actions ──────────────────────────────────────────────────────────
 
-    private void wordActions(long taskId,int index,JSONObject word){
+    private void wordActions(long taskId,int index,JSONObject word,JSONObject state){
         Sheet sheet=new Sheet(this).title(word.optString("english"));
         if(sheet.titleView()!=null){
             sheet.titleView().setTypeface(Theme.SERIF);
             sheet.titleView().setTextSize(22);
         }
         String meaning=word.optString("chinese");
-        String detail=Mastery.label(Mastery.level(word))+" · 错误 "+word.optInt("wrongCount")+" 次";
+        String detail=WrongBook.status(state)+" · 错误 "+state.optInt("wrongCount",0)+" 次 · "+Mastery.label(Mastery.level(word));
         sheet.message(meaning.isEmpty()?detail:meaning+"\n"+detail);
 
         String note=word.optString("aiAnalysis","").trim();
         if(!note.isEmpty())sheet.content(noteBlock("AI 分析",note));
 
-        sheet.item(R.drawable.ic_spell_check,"拼写此词",()->{
-            Intent intent=new Intent(this,SpellingActivity.class)
-                    .putExtra("taskId",taskId)
-                    .putExtra("indices",new int[]{index})
-                    .putExtra("round",-1)
-                    .putExtra("attemptId",UUID.randomUUID().toString());
-            Motion.open(this,intent);
+        sheet.item(R.drawable.ic_spell_check,state.optInt("streak",0)>=2?"再次强化":"拼写此词",()->startSpelling(taskId,index));
+        sheet.item(R.drawable.ic_undo_2,"重新标为未掌握","连续独立正确次数回到 0",()->{
+            try{WrongBook.unmaster(this,taskId,index);render();ui.toast("已标为未掌握");}
+            catch(Exception e){ui.error(message(e));}
         });
         sheet.item(R.drawable.ic_list_checks,"义项练习","练习本组中的错词义项",()->
                 Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",taskId).putExtra("wrongOnly",true)));
@@ -282,6 +286,21 @@ public final class WrongBookActivity extends ScreenActivity {
         sheet.item(R.drawable.ic_layers,"词根对比","词根、派生词与形近词",()->aiRoots(word));
         sheet.dangerItem(R.drawable.ic_trash_2,"清除记录",()->confirmClear(taskId,index,word));
         sheet.show();
+    }
+
+    private void startSpelling(long taskId,int index){
+        try{
+            String selection=TrainingStore.forTask(this,taskId,new int[]{index});
+            Intent intent=new Intent(this,SpellingActivity.class)
+                    .putExtra("taskId",taskId)
+                    .putExtra("selectionId",selection)
+                    .putExtra("indices",new int[]{index})
+                    .putExtra("round",-1)
+                    .putExtra("wrongMode",true)
+                    .putExtra("attemptId",UUID.randomUUID().toString())
+                    .putExtra("sessionId",UUID.randomUUID().toString());
+            Motion.open(this,intent);
+        }catch(Exception e){ui.error(message(e));}
     }
 
     private void confirmClear(long taskId,int index,JSONObject word){

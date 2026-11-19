@@ -59,5 +59,10 @@ final class AiPrompts {
     static String userReviewSummary(String payload){return "本轮复习数据：\n"+payload;}
 
     static String systemPing(){return "Reply with JSON only: {\"ok\":true,\"message\":\"pong\"}.";}
+
+    static String systemTranslation(){return "你是英语翻译题出题老师。根据目标单词编写自然、有实际语境的小批量翻译题。"+JSON_ONLY+"格式：{\"items\":[{\"prompt\":\"题目原文\",\"reference\":\"参考译文\",\"explanation\":\"必要解释\",\"targets\":[\"目标词\"]}]}。英译中时 prompt 为英文、reference 为中文；中译英时相反。目标词必须自然出现，参考译文不是唯一答案。";}
+    static String userTranslation(String wordsJson,int count,String direction,String difficulty){return "目标单词：\n"+wordsJson+"\n题量："+count+"\n方向："+direction+"\n难度："+difficulty+"\n请逐题给出目标词、题目、参考译文和简短解释。";}
+    static String systemTranslationGrade(){return "你是翻译批改老师。按语义准确性、关键遗漏和自然程度判断，不要求与参考答案字面一致。"+JSON_ONLY+"格式：{\"verdict\":\"correct|partial|wrong\",\"feedback\":\"中文具体点评\",\"improved\":\"改进译文\"}。中译英时补充必要语法建议。";}
+    static String userTranslationGrade(String direction,String prompt,String reference,String answer){return "方向："+direction+"\n题目："+prompt+"\n参考译文："+reference+"\n用户译文："+answer+"\n请批改。";}
     static String userPing(){return "ping";}
 }

@@ -10,9 +10,6 @@ import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.graphics.Rect;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.speech.tts.TextToSpeech;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.AbsoluteSizeSpan;
@@ -30,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * The flashcard session — the heart of the app.
@@ -49,11 +47,11 @@ public final class ReviewActivity extends ScreenActivity {
     private int expectedStage,mode,forceMode=-1,lastAutoSpoken=-1;
     private JSONArray words;
     private ReviewSession session;
-    private boolean revealed,completed,changing,ttsReady,active=true,practice,taskDone,aiBusy;
+    private boolean revealed,completed,changing,active=true,practice,taskDone,aiBusy;
+    private String selectionId;
+    private SpeechManager speech;
     /** The word group's own name, so the session reads as this task rather than a generic drill. */
     private String taskTitle="复习";
-    private String pendingSpeech,pendingExample;
-    private TextToSpeech tts;
     private final Feedback interaction=new Feedback();
     private StringBuilder answers=new StringBuilder();
     private View cardView;
@@ -80,21 +78,34 @@ public final class ReviewActivity extends ScreenActivity {
         super.onCreate(state);
         interaction.prepare(this);
         ui=new WordUi(this);
+        speech=new SpeechManager(this);
         id=getIntent().getLongExtra("taskId",0);
-        practice=getIntent().getBooleanExtra("practice",false)||(state!=null&&state.getBoolean("practice"));
+        selectionId=getIntent().getStringExtra("selectionId");
+        practice=getIntent().getBooleanExtra("practice",false)||selectionId!=null||(state!=null&&state.getBoolean("practice"));
         forceMode=getIntent().hasExtra("forceMode")?getIntent().getIntExtra("forceMode",-1):(state==null?-1:state.getInt("forceMode",-1));
         try{
-            JSONObject task=Store.find(Store.tasks(this),id);
-            if(task==null)throw new Exception("任务不存在");
-            words=task.getJSONArray("words");
+            JSONObject task=id==0?null:Store.find(Store.tasks(this),id);
+            if(selectionId!=null){
+                JSONObject selection=TrainingStore.selection(this,selectionId);
+                if(selection==null)throw new Exception("训练选词已失效");
+                words=selection.getJSONArray("words");
+            }else{
+                if(task==null)throw new Exception("任务不存在");
+                words=task.getJSONArray("words");
+            }
             if(words.length()==0)throw new Exception("词组为空");
-            String title=task.optString("title").trim();
-            if(!title.isEmpty())taskTitle=title;
-            taskDone=task.optBoolean("done");
-            expectedStage=state==null?task.optInt("stage"):state.getInt("stage");
+            if(task!=null){
+                String title=task.optString("title").trim();
+                if(!title.isEmpty())taskTitle=title;
+                taskDone=task.optBoolean("done");
+                expectedStage=state==null?task.optInt("stage"):state.getInt("stage");
+            }else{
+                taskTitle=practice?"任意复习":"复习";
+                expectedStage=0;
+            }
             mode=Store.prefs(this).getInt("reviewMode",0);
             seed=state==null?System.nanoTime():state.getLong("seed");
-            session=new ReviewSession(words.length(),Store.prefs(this).getBoolean("shuffleWords",false),seed);
+            session=new ReviewSession(words.length(),selectionId==null&&Store.prefs(this).getBoolean("shuffleWords",false),seed);
             String previous=state==null?"":state.getString("answers","");
             for(char answer:previous.toCharArray()){
                 if(!session.ended()){
@@ -129,15 +140,13 @@ public final class ReviewActivity extends ScreenActivity {
 
     @Override protected void onPause(){
         active=false;
-        pendingSpeech=null;
-        pendingExample=null;
-        if(tts!=null)tts.stop();
+        if(speech!=null)speech.stop();
         super.onPause();
     }
 
     @Override protected void onDestroy(){
         AiClient.cancel(pendingAi);
-        if(tts!=null)tts.shutdown();
+        if(speech!=null)speech.shutdown();
         interaction.release();
         super.onDestroy();
     }
@@ -176,37 +185,10 @@ public final class ReviewActivity extends ScreenActivity {
 
     private void speakWordThenExample(String english,String example,boolean automatic){
         if(automatic&&!Store.prefs(this).getBoolean("autoSpeak",true))return;
-        if(english==null||english.trim().isEmpty())return;
+        if(english==null||english.trim().isEmpty()||speech==null)return;
         if(automatic)lastAutoSpoken=session.answered();
-        pendingSpeech=english.trim();
-        pendingExample=example==null?"":example.trim();
-        ensureTts(automatic);
-    }
-
-    private void ensureTts(boolean automatic){
-        if(tts==null){
-            tts=new TextToSpeech(this,status->new Handler(Looper.getMainLooper()).post(()->{
-                if(isFinishing()||isDestroyed())return;
-                if(status==TextToSpeech.SUCCESS&&tts!=null){
-                    ttsReady=SpeechSettings.configure(tts,Store.prefs(this).getString("speechVoice",""),Store.prefs(this).getInt("speechRate",2));
-                    if(ttsReady&&active)playPendingSpeech();
-                    else if(!ttsReady&&!automatic)ui.toast("设备的英文朗读不可用");
-                }else if(!automatic)ui.toast("设备的英文朗读不可用");
-            }));
-        }
-        else if(ttsReady)playPendingSpeech();
-        else if(!automatic)ui.toast("朗读正在准备或设备缺少英文语音");
-    }
-
-    private void playPendingSpeech(){
-        if(!ttsReady||tts==null||!active||pendingSpeech==null||pendingSpeech.isEmpty())return;
-        String word=pendingSpeech;
-        String example=pendingExample==null?"":pendingExample;
-        pendingSpeech=null;
-        pendingExample=null;
-        tts.stop();
-        tts.speak(word,TextToSpeech.QUEUE_FLUSH,null,"word");
-        if(!example.isEmpty())tts.speak(example,TextToSpeech.QUEUE_ADD,null,"example");
+        String extra=example==null?"":example.trim();
+        speech.speak(english.trim()+(extra.isEmpty()?"":". "+extra),"review");
     }
 
     // ── Session page ──────────────────────────────────────────────────────────
@@ -521,20 +503,20 @@ public final class ReviewActivity extends ScreenActivity {
     private void answer(boolean known,int expected,View source){
         if(changing||!revealed||session.ended()||session.answered()!=expected)return;
         boolean firstAttempt=session.attemptsForCurrent()==0;
+        JSONObject word=words.optJSONObject(session.current());
+        long sourceTask=word==null?id:word.optLong("_taskId",id);
+        int sourceIndex=word!=null&&word.has("_wordIndex")?word.optInt("_wordIndex"):session.current();
+        String wordId=word==null?null:Words.stableId(word);
         try{
-            if(!practice){
-                if(!known)WrongBook.record(this,id,session.current(),expectedStage+1,words,"review:"+seed+":"+expected+":"+session.current());
-                Mastery.applyAnswer(this,id,session.current(),known,firstAttempt,words);
-            }
+            if(!known&&sourceTask>0)WrongBook.record(this,sourceTask,sourceIndex,practice?0:expectedStage+1,words,"review:"+seed+":"+expected+":"+wordId,wordId);
+            if(!practice&&sourceTask>0)Mastery.applyAnswer(this,sourceTask,sourceIndex,known,firstAttempt,words,wordId);
         }catch(Exception e){
             ui.error("结果保存失败，尚未提交本题："+e.getMessage());
             return;
         }
         interaction.respond(source,known?Feedback.KNOWN:Feedback.RETRY);
         changing=true;
-        pendingSpeech=null;
-        pendingExample=null;
-        if(ttsReady)tts.stop();
+        if(speech!=null)speech.stop();
         session.answer(known);
         answers.append(known?'1':'0');
         revealed=false;
@@ -556,9 +538,10 @@ public final class ReviewActivity extends ScreenActivity {
     private void more(){
         if(changing||currentWord==null)return;
         JSONObject word=currentWord;
-        new Sheet(this)
-            .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文或例句",()->edit(word))
-            .show();
+        Sheet sheet=new Sheet(this)
+            .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文或例句",()->edit(word));
+        if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看连接图",()->Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english"))));
+        sheet.show();
     }
 
     private void edit(JSONObject word){
@@ -587,14 +570,23 @@ public final class ReviewActivity extends ScreenActivity {
                 Object oldChinese=word.opt("chinese");
                 Object oldExample=word.opt("example");
                 try{
-                    word.put("english",en.getText().toString().trim())
+                    long targetId=word.optLong("_taskId",id);
+                    int hint=word.has("_wordIndex")?word.optInt("_wordIndex"):session.current();
+                    String wordId=Words.stableId(word);
+                    JSONArray all=Store.tasks(this);
+                    JSONObject current=Store.find(all,targetId);
+                    if(current==null)throw new Exception("任务不存在");
+                    JSONArray stored=current.optJSONArray("words");
+                    int located=Words.locate(stored,hint,wordId);
+                    if(located<0)throw new Exception("单词卡已不存在");
+                    JSONObject target=stored.getJSONObject(located);
+                    Words.stableId(target);
+                    target.put("english",en.getText().toString().trim())
                         .put("chinese",zh.getText().toString().trim())
                         .put("example",ex.getText().toString().trim());
-                    JSONArray all=Store.tasks(this);
-                    JSONObject current=Store.find(all,id);
-                    if(current==null)throw new Exception("任务不存在");
-                    current.put("words",words);
+                    word.put("english",target.optString("english")).put("chinese",target.optString("chinese")).put("example",target.optString("example")).put("wordId",Words.stableId(target));
                     Store.save(this,all);
+                    if(selectionId!=null)TrainingStore.updateWord(this,selectionId,word);
                 }catch(Exception e){
                     restore(word,"english",oldEnglish);
                     restore(word,"chinese",oldChinese);
@@ -687,7 +679,7 @@ public final class ReviewActivity extends ScreenActivity {
         String againLabel=practice?"再练一遍":"再复习一遍";
         View.OnClickListener again=v->{
             seed=System.nanoTime();
-            session=new ReviewSession(words.length(),Store.prefs(this).getBoolean("shuffleWords",false),seed);
+            session=new ReviewSession(words.length(),selectionId==null&&Store.prefs(this).getBoolean("shuffleWords",false),seed);
             lastAutoSpoken=-1;
             answers.setLength(0);
             revealed=false;
@@ -981,25 +973,32 @@ public final class ReviewActivity extends ScreenActivity {
             interaction.confirm(getWindow().getDecorView());
 
             JSONArray storedWords=task.optJSONArray("words");
-            int[] wrongCounts=new int[words.length()];
-            if(storedWords!=null){
-                for(int i=0;i<Math.min(wrongCounts.length,storedWords.length());i++){
-                    JSONObject word=storedWords.optJSONObject(i);
-                    if(word!=null)wrongCounts[i]=word.optInt("wrongCount");
-                }
+            int wordTotal=storedWords==null?words.length():storedWords.length();
+            ArrayList<Integer> wrongHits=new ArrayList<>();
+            JSONArray wrongSource=storedWords!=null?storedWords:words;
+            for(int i=0;i<wrongSource.length();i++){
+                JSONObject word=wrongSource.optJSONObject(i);
+                if(word!=null&&WrongBook.inBook(WrongBook.stateForWord(this,word)))wrongHits.add(i);
             }
-            int[] indices=SpellingPlan.indices(spellingMode,words.length(),SpellingPlan.wrongBookIndices(words.length(),wrongCounts));
+            int[] wrongIndices=new int[wrongHits.size()];
+            for(int i=0;i<wrongHits.size();i++)wrongIndices[i]=wrongHits.get(i);
+            int[] indices=SpellingPlan.indices(spellingMode,wordTotal,wrongIndices);
             int[] forgotten=session.missedIndices();
             if(Store.prefs(this).getBoolean("spellForgottenWords",false))indices=SpellingPlan.include(indices,forgotten,words.length());
             int[] examples=Store.prefs(this).getBoolean("addExamplesForForgotten",false)?ExampleActivity.missingExampleIndices(storedWords,forgotten):new int[0];
 
             if(indices.length>0){
+                String selection=TrainingStore.forTask(this,id,indices);
                 Intent nextStep=new Intent(this,SpellingActivity.class)
                     .putExtra("taskId",id)
+                    .putExtra("selectionId",selection)
                     .putExtra("round",next)
                     .putExtra("indices",indices)
                     .putExtra("historyAt",now)
-                    .putExtra("exampleIndices",examples);
+                    .putExtra("exampleIndices",examples)
+                    .putExtra("wrongMode",spellingMode==SpellingPlan.WRONG_ONLY)
+                    .putExtra("sessionId",UUID.randomUUID().toString())
+                    .putExtra("attemptId",UUID.randomUUID().toString());
                 forward(nextStep);
             }else if(examples.length>0){
                 forward(new Intent(this,ExampleActivity.class).putExtra("taskId",id).putExtra("indices",examples).putExtra("notice","第 "+next+" 轮已记录"));
