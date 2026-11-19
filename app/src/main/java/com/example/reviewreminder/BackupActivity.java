@@ -24,9 +24,9 @@ public final class BackupActivity extends ScreenActivity {
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     @Override public void onCreate(Bundle state){
         super.onCreate(state);ui=new WordUi(this);ui.start("数据备份与恢复");
-        ui.body.addView(ui.text("导出版本化 JSON 备份，可在另一台设备或重装后恢复。备份不会包含任何 API Key；参考音频默认不导出，连接图可单独选择。",13,WordUi.MUTED));ui.gap(ui.body,16);
-        LinearLayout card=ui.card();card.addView(ui.text("包含内容",15,Theme.INK));ui.gap(card,4);card.addView(ui.text("计划与单词、复习进度、拼写历史、错题本、训练选词、AI 翻译记录和音色配置。",12,WordUi.MUTED));ui.gap(card,10);
-        images=new CheckBox(this);images.setText("包含连接图（推荐）");images.setChecked(true);images.setMinHeight(ui.dp(48));card.addView(images);
+        ui.body.addView(ui.text("导出版本化 JSON 备份，可在另一台设备或重装后恢复。备份不会包含任何 API Key。词汇关系会一并导出；参考音频默认不导出，旧的附带图片可单独选择。",13,WordUi.MUTED));ui.gap(ui.body,16);
+        LinearLayout card=ui.card();card.addView(ui.text("包含内容",15,Theme.INK));ui.gap(card,4);card.addView(ui.text("计划与单词、复习进度、拼写历史、错题本、词汇关系、训练选词、AI 翻译记录和音色配置。",12,WordUi.MUTED));ui.gap(card,10);
+        images=new CheckBox(this);images.setText("包含单词卡上的旧图片");images.setChecked(true);images.setMinHeight(ui.dp(48));card.addView(images);
         audio=new CheckBox(this);audio.setText("包含参考音频（可能包含你的声音，体积较大）");audio.setChecked(false);audio.setMinHeight(ui.dp(48));card.addView(audio);
         ui.body.addView(card);ui.gap(ui.body,16);
         export=ui.primaryButton("导出备份文件",v->chooseExport());ui.body.addView(export);ui.gap(ui.body,10);
@@ -55,7 +55,7 @@ public final class BackupActivity extends ScreenActivity {
         worker.execute(()->{
             try{JSONObject json=BackupManager.exportData(getApplicationContext(),includeAudio,includeImages);String text=json.toString(2);
                 try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IllegalStateException("无法写入目标文件");out.write(text.getBytes("UTF-8"));out.flush();}
-                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;setBusy(false,"备份已导出："+summary(json)+"\n未包含 API Key"+(includeAudio?"，包含参考音频":"，未包含参考音频")+(includeImages?"，包含连接图":"，未包含连接图"));});
+                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;setBusy(false,"备份已导出："+summary(json)+"\n未包含 API Key"+(includeAudio?"，包含参考音频":"，未包含参考音频")+(includeImages?"，包含旧图片":"，未包含旧图片"));});
             }catch(Exception e){runOnUiThread(()->{if(isFinishing()||isDestroyed())return;setBusy(false,"导出失败："+message(e));});}
         });
     }
@@ -82,7 +82,7 @@ public final class BackupActivity extends ScreenActivity {
         if(busy)return;setBusy(true,replace?"正在替换数据…":"正在合并数据…");
         worker.execute(()->{
             try{BackupManager.Result result=BackupManager.apply(getApplicationContext(),backup,replace);
-                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;loaded=null;String detail=result.summary()+" "+result.tasksAdded+" 个新计划，"+result.wordsAdded+" 个新单词，"+result.wrongStates+" 条错词记录，"+result.exercises+" 道翻译练习，"+result.profiles+" 个音色，"+result.images+" 张连接图。"+"\n已重新安排未完成计划的提醒。";if(result.warning!=null&&!result.warning.isEmpty())detail+="\n"+result.warning;setBusy(false,detail);ui.toast(result.warning==null||result.warning.isEmpty()?"备份恢复完成":"备份已写入，但有部分内容需要检查");});
+                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;loaded=null;String detail=result.summary()+" "+result.tasksAdded+" 个新计划，"+result.wordsAdded+" 个新单词，"+result.wrongStates+" 条错词记录，"+result.relations+" 条词汇关系，"+result.exercises+" 道翻译练习，"+result.profiles+" 个音色，"+result.images+" 张旧图片。"+"\n已重新安排未完成计划的提醒。";if(result.warning!=null&&!result.warning.isEmpty())detail+="\n"+result.warning;setBusy(false,detail);ui.toast(result.warning==null||result.warning.isEmpty()?"备份恢复完成":"备份已写入，但有部分内容需要检查");});
             }catch(Exception e){runOnUiThread(()->{if(isFinishing()||isDestroyed())return;setBusy(false,"恢复失败，原有数据未被清空："+message(e));});}
         });
     }

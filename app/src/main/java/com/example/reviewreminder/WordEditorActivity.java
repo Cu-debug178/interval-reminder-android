@@ -2,8 +2,6 @@ package com.example.reviewreminder;
 
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -16,8 +14,6 @@ import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
@@ -46,9 +42,6 @@ public final class WordEditorActivity extends ScreenActivity {
     private boolean aiBusy,rendered;
     private float lastProgress=-1;
     private final Feedback interaction=new Feedback();
-    private static final int PICK_CONNECTION_IMAGE=71,DRAW_CONNECTION_IMAGE=72;
-    private boolean importingImage;
-    private final ExecutorService imageWorker=Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -84,7 +77,6 @@ public final class WordEditorActivity extends ScreenActivity {
 
     @Override protected void onDestroy(){
         AiClient.cancel(pending);
-        imageWorker.shutdownNow();
         // Let a just-started completion sound finish before the pool goes away.
         final Feedback sounds=interaction;
         new Handler(Looper.getMainLooper()).postDelayed(sounds::release,1500);
@@ -148,7 +140,7 @@ public final class WordEditorActivity extends ScreenActivity {
         WordUi.enable(aiButton,!aiBusy);
         labelRow(card,"例句","可留空",aiButton);
         example=cardInput(card,word.optString("example"),2,"英文例句");
-        connectionBlock(card,word);
+        relationBlock(card,word);
 
         body.addView(card,WordUi.lp());
         content=card;
@@ -272,8 +264,9 @@ public final class WordEditorActivity extends ScreenActivity {
         }
         body.addView(card,WordUi.lp());
         content=card;
+        body.addView(ui.textButton("相关词",v->openRelations(word)),ui.lpMargin(Theme.SPACE_8,0));
         if(ConnectionImages.exists(this,word.optString("connectionImage"))){
-            body.addView(ui.textButton("查看连接图",v->openConnection(word)),ui.lpMargin(Theme.SPACE_8,0));
+            body.addView(ui.textButton("查看附带图片",v->openConnection(word)),ui.lpMargin(Theme.SPACE_4,0));
         }
 
         boolean last=index==words.length()-1;
@@ -407,8 +400,7 @@ public final class WordEditorActivity extends ScreenActivity {
                         focusEnglish();
                     }catch(Exception e){ui.error(e.getMessage());}
                 })
-                .item(R.drawable.ic_image_plus,"添加或更换连接图",()->{if(save(true))pickConnectionImage();})
-                .item(R.drawable.ic_pen_line,"手绘连接图",()->{if(save(true))drawConnection();})
+                .item(R.drawable.ic_layers,"相关词","近义、词形与归纳",()->{if(save(true))openRelations(words.optJSONObject(index));})
                 .dangerItem(R.drawable.ic_trash_2,"删除此卡",this::remove)
                 .show();
     }
@@ -605,98 +597,61 @@ public final class WordEditorActivity extends ScreenActivity {
         sheet.show();
     }
 
-    private void connectionBlock(LinearLayout card,JSONObject word){
+    private void relationBlock(LinearLayout card,JSONObject word){
         ui.gap(card,Theme.SPACE_16);
-        labelRow(card,"连接图","可选，复习时再打开",null);
-        String path=word.optString("connectionImage");
-        boolean present=ConnectionImages.exists(this,path);
-        if(present){
-            ImageView preview=new ImageView(this);
-            preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            preview.setContentDescription("查看连接图");
-            try{
-                Bitmap value=ConnectionImages.decode(this,path,900);
-                preview.setImageBitmap(value);
-                preview.setBackground(Theme.shape(this,Theme.BG,Theme.RADIUS_FIELD));
-                preview.setClipToOutline(true);
-                preview.setOnClickListener(v->openConnection(word));
-                Motion.press(preview,.985f);
-                card.addView(preview,new LinearLayout.LayoutParams(-1,ui.dp(140)));
-            }catch(Exception e){present=false;}
-        }
-        if(!present){
-            TextView empty=ui.type(path.isEmpty()?"没有连接图。复习卡不会留出空白。":"原连接图已丢失，可以重新添加或手绘。",Theme.T_CAPTION);
-            empty.setTextColor(path.isEmpty()?Theme.INK_3:Theme.WARN);
-            card.addView(empty,WordUi.lp());
-        }
+        labelRow(card,"相关词","近义、词形与归纳",null);
+        // Migrated cards keep their original JSON, which often has no wordId. The id review
+        // already uses is the stable hash, so the count has to follow that and not the missing field.
+        String id=Words.stableId(word);
+        int count=id.isEmpty()?0:WordRelations.countFor(this,id);
+        TextView summary=ui.type(count==0?"还没有关联。保存后可与其他单词相连，复习揭晓时会显示。":"已有 "+count+" 个相关词，复习揭晓后会出现。",Theme.T_CAPTION);
+        summary.setTextColor(Theme.INK_3);
+        card.addView(summary,WordUi.lp());
         LinearLayout actions=ui.row();
-        actions.addView(ui.quietPill(present?"更换图片":"添加图片",R.drawable.ic_image_plus,v->{if(save(true))pickConnectionImage();}),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
-        actions.addView(ui.quietPill("手绘",R.drawable.ic_pen_line,v->{if(save(true))drawConnection();}),marginsConnection());
-        if(present)actions.addView(ui.quietPill("删除",R.drawable.ic_trash_2,v->deleteConnection(word)),marginsConnection());
+        actions.addView(ui.quietPill(count==0?"添加关联":"编辑关系",R.drawable.ic_layers,v->openRelations(word)),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
         card.addView(actions,ui.lpMargin(Theme.SPACE_12,0));
+        legacyImage(card,word);
     }
-    private LinearLayout.LayoutParams marginsConnection(){
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL));
-        p.leftMargin=ui.dp(Theme.SPACE_8);
-        return p;
+    /** Old attached pictures stay viewable. They are not the relation graph. */
+    private void legacyImage(LinearLayout card,JSONObject word){
+        String path=word.optString("connectionImage");
+        if(path.isEmpty())return;
+        boolean present=ConnectionImages.exists(this,path);
+        TextView note=ui.type(present?"这张卡还留着一张旧图片，它不参与词汇关系。":"原来附带的图片已经找不到了。",Theme.T_CAPTION);
+        note.setTextColor(present?Theme.INK_3:Theme.WARN);
+        card.addView(note,ui.lpMargin(Theme.SPACE_12,0));
+        if(!present)return;
+        LinearLayout actions=ui.row();
+        actions.addView(ui.quietPill("查看图片",R.drawable.ic_images,v->openConnection(word)),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
+        LinearLayout.LayoutParams delete=new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL));
+        delete.leftMargin=ui.dp(Theme.SPACE_8);
+        actions.addView(ui.quietPill("删除图片",R.drawable.ic_trash_2,v->deleteConnection(word)),delete);
+        card.addView(actions,ui.lpMargin(Theme.SPACE_8,0));
     }
-    private void pickConnectionImage(){
-        if(importingImage)return;
-        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
-        try{startActivityForResult(intent,PICK_CONNECTION_IMAGE);}catch(Exception e){ui.error("没有可用的图片选择器");}
-    }
-    private void drawConnection(){
-        if(importingImage)return;
-        try{startActivityForResult(new Intent(this,DrawingActivity.class),DRAW_CONNECTION_IMAGE);}catch(Exception e){ui.error("无法打开手绘页");}
+    private void openRelations(JSONObject word){
+        if(english!=null){
+            if(english.getText().toString().trim().isEmpty()){english.setError("请先填写英文");return;}
+            if(!save(true))return;
+            word=words.optJSONObject(index);
+        }
+        if(word==null||word.optString("english").trim().isEmpty()){ui.error("请先填写英文");return;}
+        try{
+            Words.stableId(word);
+            persistWords();
+        }catch(Exception e){ui.error(e.getMessage()==null?"无法保存单词":e.getMessage());return;}
+        Intent open=new Intent(this,RelationActivity.class).putExtra("wordId",Words.stableId(word)).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese"));
+        if(taskId==0&&words!=null)open.putExtra("draftWords",words.toString());
+        Motion.open(this,open);
     }
     private void deleteConnection(JSONObject word){
-        Sheet.confirm(this,"删除连接图？","只删除这张图片，单词和复习记录都保留。","保留","删除",true,()->{
+        Sheet.confirm(this,"删除这张旧图片？","只删除图片，单词、复习记录和词汇关系都保留。","保留","删除",true,()->{
             ConnectionImages.delete(this,word.optString("connectionImage"));
-            try{word.put("connectionImage","");persistWords();show();ui.toast("连接图已删除");}catch(Exception e){ui.error(e.getMessage());}
+            try{word.put("connectionImage","");persistWords();show();ui.toast("图片已删除");}catch(Exception e){ui.error(e.getMessage());}
         });
     }
     private void openConnection(JSONObject word){
-        if(!ConnectionImages.exists(this,word.optString("connectionImage"))){ui.error("连接图已丢失");return;}
+        if(!ConnectionImages.exists(this,word.optString("connectionImage"))){ui.error("图片已丢失");return;}
         Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english")));
-    }
-    @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK||data==null)return;
-        if(request==DRAW_CONNECTION_IMAGE){String path=data.getStringExtra("path");if(path!=null)applyConnection(path);}
-        else if(request==PICK_CONNECTION_IMAGE&&data.getData()!=null)loadConnection(data.getData());
-    }
-    private void loadConnection(Uri uri){
-        if(importingImage)return;
-        JSONObject target=words.optJSONObject(index);
-        if(target==null){ui.error("当前单词卡已变化，请重试");return;}
-        importingImage=true;
-        final int expected=index;
-        ui.toast("正在处理连接图…");
-        imageWorker.execute(()->{
-            try{
-                String path=ConnectionImages.importUri(getApplicationContext(),uri);
-                runOnUiThread(()->{
-                    if(isFinishing()||isDestroyed())return;
-                    importingImage=false;
-                    if(index!=expected){ui.toast("已换到其他卡片，连接图未写入");return;}
-                    applyConnection(path);
-                });
-            }catch(Exception e){
-                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;importingImage=false;ui.error("图片保存失败："+e.getMessage());});
-            }
-        });
-    }
-    private void applyConnection(String path){
-        JSONObject word=words.optJSONObject(index);
-        if(word==null)return;
-        try{
-            String old=word.optString("connectionImage");
-            if(!old.isEmpty()&&!old.equals(path))ConnectionImages.delete(this,old);
-            word.put("connectionImage",path);
-            persistWords();
-            show();
-            ui.toast("连接图已保存");
-        }catch(Exception e){ui.error(e.getMessage());}
     }
     private void persistWords()throws Exception{
         document.put("words",words);

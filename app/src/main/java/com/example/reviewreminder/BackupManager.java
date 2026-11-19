@@ -19,7 +19,7 @@ import java.util.Set;
 
 /** Versioned, key-free local backup with in-memory validation and one-shot commit. */
 final class BackupManager {
-    static final int VERSION=2,MAX_BYTES=128*1024*1024;
+    static final int VERSION=3,MAX_BYTES=128*1024*1024;
     private static final String ACTIVE="spellingActive:";
     private static final Set<String> SECRET_KEYS=new HashSet<>(Arrays.asList(
         "apikey","api_key","api-key","apikeyenc","api_key_enc","apikeyencrypted","speechkey","voicekey","voiceapikey",
@@ -30,12 +30,12 @@ final class BackupManager {
 
     static final class Backup {
         int version;long exportedAt;
-        JSONArray tasks=new JSONArray(),attempts=new JSONArray(),translationExercises=new JSONArray(),voiceProfiles=new JSONArray(),trainingOrder=new JSONArray();
+        JSONArray tasks=new JSONArray(),attempts=new JSONArray(),translationExercises=new JSONArray(),voiceProfiles=new JSONArray(),trainingOrder=new JSONArray(),relations=new JSONArray(),relationGroups=new JSONArray(),relationMembers=new JSONArray();
         JSONObject wrongStates=new JSONObject(),trainingSelections=new JSONObject(),activeSessions=new JSONObject(),voiceSettings=new JSONObject(),images=new JSONObject(),audio=new JSONObject();
     }
 
     static final class Result {
-        int tasksAdded,wordsAdded,exercises,profiles,images,sessions,wrongStates;boolean replaced;String warning="";
+        int tasksAdded,wordsAdded,exercises,profiles,images,sessions,wrongStates,relations;boolean replaced;String warning="";
         String summary(){return replaced?"已替换数据：":"已合并数据：";}
     }
 
@@ -52,7 +52,7 @@ final class BackupManager {
         JSONArray profiles=cleanProfiles(VoiceStore.profiles(c));out.put("voiceProfiles",profiles);
         out.put("voiceSettings",new JSONObject()
             .put("provider",VoiceStore.provider(c)).put("voiceId",VoiceStore.voiceId(c)).put("speechRate",Store.prefs(c).getInt("speechRate",2))
-            .put("mimoSpeechBase",VoiceStore.baseUrl(c)).put("mimoSpeechModel",VoiceStore.model(c)));
+            .put("speechVoice",Store.prefs(c).getString("speechVoice","")).put("mimoSpeechBase",VoiceStore.baseUrl(c)).put("mimoSpeechModel",VoiceStore.model(c)));
         // Active spelling selections can be older than the retained selection order.
         JSONObject selections=out.getJSONObject("trainingSelections");
         JSONObject active=out.getJSONObject("spellingSessions");
@@ -78,6 +78,10 @@ final class BackupManager {
             }
             out.put("audio",audio);
         }else out.put("audio",new JSONObject());
+        JSONObject graph=WordRelations.export(c);
+        out.put("relations",graph.optJSONArray("links")==null?new JSONArray():graph.optJSONArray("links"));
+        out.put("relationGroups",graph.optJSONArray("groups")==null?new JSONArray():graph.optJSONArray("groups"));
+        out.put("relationMembers",graph.optJSONArray("members")==null?new JSONArray():graph.optJSONArray("members"));
         return out;
     }
 
@@ -97,8 +101,9 @@ final class BackupManager {
         Backup backup=new Backup();backup.version=version;backup.exportedAt=root.optLong("exportedAt",0);
         backup.tasks=array(root,"tasks",true);backup.attempts=array(root,"spellingAttempts",false);backup.translationExercises=array(root,"translationExercises",false);backup.trainingOrder=array(root,"trainingSelectionOrder",false);backup.voiceProfiles=array(root,"voiceProfiles",false);
         backup.wrongStates=object(root,"wrongStates");backup.trainingSelections=object(root,"trainingSelections");backup.activeSessions=object(root,"spellingSessions");backup.voiceSettings=object(root,"voiceSettings");backup.images=object(root,"images");backup.audio=object(root,"audio");
+        backup.relations=array(root,"relations",false);backup.relationGroups=array(root,"relationGroups",false);backup.relationMembers=array(root,"relationMembers",false);
         validateTasks(backup.tasks);validateSelections(backup.trainingSelections);validateProfiles(backup.voiceProfiles);
-        validateImages(backup.images);validateAudio(backup.audio);
+        validateImages(backup.images);validateAudio(backup.audio);validateGraph(backup.relations,backup.relationGroups,backup.relationMembers);
         return backup;
     }
 
@@ -167,11 +172,15 @@ final class BackupManager {
                 JSONObject voice=backup.voiceSettings;String provider=voice.optString("provider",VoiceStore.SYSTEM);String voiceId=voice.optString("voiceId","");if(!VoiceStore.SYSTEM.equals(provider)&&!VoiceStore.preset(voiceId)&&findProfile(profiles,voiceId)==null){provider=VoiceStore.SYSTEM;voiceId="";}
                 // Keep this device's speech base URL. The backup must not retarget the on-device API key.
                 edit.putString("voiceProvider",provider).putString("voiceId",voiceId).putInt("speechRate",Math.max(0,Math.min(4,voice.optInt("speechRate",2)))).putString("mimoSpeechModel",voice.optString("mimoSpeechModel","mimo-v2.5-tts"));
+                if(voice.has("speechVoice"))edit.putString("speechVoice",voice.optString("speechVoice",""));
                 Iterator<String> old=prefs.getAll().keySet().iterator();while(old.hasNext()){String key=old.next();if(key.startsWith(ACTIVE))edit.remove(key);}
             }
             for(Iterator<String> keys=active.keys();keys.hasNext();){String key=keys.next();edit.putString(ACTIVE+key,active.optJSONObject(key).toString());}
-            if(!edit.commit())throw new IllegalStateException("备份数据未能写入设备");
-            committed=true;publishFiles(pending);reschedule(c,result,currentTasks,nextTasks,replace);return result;
+            LocalStore.inTransaction(c,new LocalStore.Work(){public void run()throws Exception{
+                if(!edit.commit())throw new IllegalStateException("备份数据未能写入设备");
+                WordRelations.restore(c,backup.relations,backup.relationGroups,backup.relationMembers,replace);
+            }});
+            committed=true;result.relations=backup.relations.length();publishFiles(pending);reschedule(c,result,currentTasks,nextTasks,replace);return result;
         }catch(Exception e){
             if(!committed){discardFiles(pending);throw e;}
             result.warning="数据已写入，但部分附件未能恢复："+(e.getMessage()==null?"写入失败":e.getMessage());
@@ -201,6 +210,12 @@ final class BackupManager {
     private static void validateProfiles(JSONArray profiles)throws Exception{for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p==null||p.optString("id").isEmpty())throw new IllegalArgumentException("音色配置格式无效");}}
     private static void validateImages(JSONObject images)throws Exception{Iterator<String> keys=images.keys();while(keys.hasNext()){String path=keys.next();if(path.contains("/")||path.contains("\\")||path.startsWith("."))throw new IllegalArgumentException("连接图路径无效");byte[] data=Base64Compat.decode(images.optString(path,""));if(data.length==0)throw new IllegalArgumentException("连接图内容为空");}}
     private static void validateAudio(JSONObject audio)throws Exception{Iterator<String> keys=audio.keys();while(keys.hasNext()){JSONObject sample=audio.optJSONObject(keys.next());if(sample==null||sample.optString("mime").isEmpty())throw new IllegalArgumentException("参考音频格式无效");byte[] data=Base64Compat.decode(sample.optString("data",""));if(data.length==0)throw new IllegalArgumentException("参考音频内容为空");}}
+    /** Relations are checked with the same rules as a restore, and a picture path is never turned into a link. */
+    private static void validateGraph(JSONArray links,JSONArray groups,JSONArray members)throws Exception{
+        if(links.length()>20000||groups.length()>5000||members.length()>20000)throw new IllegalArgumentException("词汇关系数量超出限制");
+        JSONObject incoming=new JSONObject().put("links",links).put("groups",groups).put("members",members);
+        WordGraph.merge(WordGraph.empty(),incoming,true);
+    }
 
     private static Object clean(Object value)throws Exception{
         if(value instanceof JSONObject){JSONObject source=(JSONObject)value,out=new JSONObject();Iterator<String> keys=source.keys();while(keys.hasNext()){String key=keys.next();if(isSecret(key))continue;out.put(key,clean(source.opt(key)));}return out;}

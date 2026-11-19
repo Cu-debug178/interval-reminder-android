@@ -22,6 +22,7 @@
         <activity android:name=".PlanDetailActivity" android:exported="false"/>
         <activity android:name=".TranslationActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".ConnectionImageActivity" android:exported="false"/>
+        <activity android:name=".RelationActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".DrawingActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".BackupActivity" android:exported="false"/>
         <provider android:name=".PhotoProvider" android:authorities="com.example.reviewreminder.photos" android:exported="false" android:grantUriPermissions="true"/>

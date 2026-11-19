@@ -7,10 +7,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class Store {
-    private static final String PREF = "review_data";
+    static final String PREF = "review_data";
     public static final String DEFAULT_INTERVALS = "5,30,720,1440,2880,5760,10080,20160";
     private Store() {}
-    public static android.content.SharedPreferences prefs(Context c) { return c.getSharedPreferences(PREF, 0); }
+    /** Private SQLite-backed preferences. The first call migrates a legacy {@code review_data} file. */
+    public static android.content.SharedPreferences prefs(Context c) { return LocalStore.prefs(c); }
     public static JSONArray tasks(Context c) {
         try { return new JSONArray(prefs(c).getString("tasks", "[]")); } catch (Exception e) { throw new IllegalStateException(e); }
     }
