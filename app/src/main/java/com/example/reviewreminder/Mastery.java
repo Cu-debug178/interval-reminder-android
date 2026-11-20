@@ -27,18 +27,23 @@ final class Mastery {
     static void applyAnswer(Context context,long taskId,int wordIndex,boolean known,boolean firstAttempt,JSONArray sessionWords)throws Exception{
         applyAnswer(context,taskId,wordIndex,known,firstAttempt,sessionWords,null);
     }
+
     static void applyAnswer(Context context,long taskId,int wordIndex,boolean known,boolean firstAttempt,JSONArray sessionWords,String wordId)throws Exception{
-        JSONArray tasks=Store.tasks(context);JSONObject task=Store.find(tasks,taskId);
-        if(task==null)throw new IllegalStateException("复习任务已不存在");
-        JSONArray words=task.optJSONArray("words");
-        int index=Words.locate(words,wordIndex,wordId);
-        if(index<0)throw new IllegalStateException("单词卡已不存在");
-        JSONObject saved=new JSONObject(words.getJSONObject(index).toString());
-        if(known){if(firstAttempt)remember(saved);}else forget(saved);
-        words.put(index,saved);task.put("words",words);Store.save(context,tasks);
-        if(sessionWords!=null){
-            int sessionIndex=Words.locate(sessionWords,wordIndex,wordId!=null?wordId:Words.stableId(saved));
-            if(sessionIndex>=0)sessionWords.put(sessionIndex,new JSONObject(saved.toString()));
+        final JSONObject[] out=new JSONObject[1];
+        LocalStore.inTransaction(context,()->{
+            JSONObject task=LocalStore.readTaskLocked(LocalStore.database(),taskId);
+            if(task==null)throw new IllegalStateException("复习任务已不存在");
+            JSONArray words=task.optJSONArray("words");
+            int index=Words.locate(words,wordIndex,wordId);
+            if(index<0)throw new IllegalStateException("单词卡已不存在");
+            JSONObject saved=new JSONObject(words.getJSONObject(index).toString());
+            if(known){if(firstAttempt)remember(saved);}else forget(saved);
+            LocalStore.writeCardRowLocked(LocalStore.database(),taskId,index,saved);
+            out[0]=saved;
+        });
+        if(sessionWords!=null&&out[0]!=null){
+            int sessionIndex=Words.locate(sessionWords,wordIndex,wordId!=null?wordId:Words.stableId(out[0]));
+            if(sessionIndex>=0)sessionWords.put(sessionIndex,new JSONObject(out[0].toString()));
         }
     }
 

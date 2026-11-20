@@ -611,7 +611,7 @@ public class MainActivity extends ScreenActivity {
         List<JSONObject> list=new ArrayList<>();
         for(int i=0;i<all.length();i++){
             JSONObject t=all.optJSONObject(i);
-            if(t!=null&&t.optBoolean("done")==completed)list.add(t);
+            if(t!=null&&!t.optBoolean("archived")&&t.optBoolean("done")==completed)list.add(t);
         }
         Collections.sort(list,new Comparator<JSONObject>(){
             @Override public int compare(JSONObject a,JSONObject b){
@@ -653,6 +653,22 @@ public class MainActivity extends ScreenActivity {
             content.addView(ui.banner(R.drawable.ic_bell,"通知未开启，到期时不会提醒你",true,v->showPermissionGuide(true)),WordUi.lp());
         }
 
+        // Resumable unfinished spelling session persisted in SQLite (PRD SP-01).
+        JSONObject pendingSpell=TrainingStore.latestSpelling(this);
+        if(pendingSpell!=null&&!pendingSpell.optString("sessionId").isEmpty()){
+            try{
+                SpellingSession ss=SpellingSession.restore(pendingSpell.optString("snapshot"));
+                if(!ss.ended()){
+                    int remain=Math.max(1,ss.initialTotal()-ss.finishedCount());
+                    gap(content,Theme.SPACE_16);
+                    String label=(pendingSpell.optBoolean("wrongMode")?"继续错词强化":"继续未完成的拼写")+" · 还剩 "+remain+" 个词";
+                    final String sid=pendingSpell.optString("sessionId");
+                    content.addView(ui.banner(R.drawable.ic_spell_check,label,false,v->
+                        Motion.open(this,new Intent(this,SpellingActivity.class).putExtra("sessionId",sid))),WordUi.lp());
+                }
+            }catch(Exception ignored){}
+        }
+
         if(active.isEmpty()){
             gap(content,Theme.SPACE_24);
             View.OnClickListener capture=v->Motion.open(this,new Intent(this,ImportActivity.class));
@@ -678,19 +694,18 @@ public class MainActivity extends ScreenActivity {
                     long id=t.optLong("id");
                     ui.item(group,0,t.optString("title"),"第 "+(t.optInt("stage")+1)+" 轮",when(t.optLong("due")),false,v->details(id));
                 }
-                if(later.size()>5)ui.item(group,0,"查看全部 "+later.size()+" 组",null,null,true,v->goPage(1));
+                if(later.size()>5)ui.item(group,0,"查看全部 "+later.size()+" 组",null,null,true,v->Motion.open(this,new Intent(this,PlansActivity.class)));
                 content.addView(group,WordUi.lp());
             }
         }
 
         ui.section(content,"学习",null);
         LinearLayout learn=ui.group();
-        ui.item(learn,R.drawable.ic_layers,"混合训练","跨词组复习、拼写和错词强化",null,true,v->Motion.open(this,new Intent(this,PracticeSetupActivity.class)));
-        ui.item(learn,R.drawable.ic_list,"全部计划","查看进度，重命名或继续练习",null,true,v->Motion.open(this,new Intent(this,PlansActivity.class)));
+        ui.item(learn,R.drawable.ic_book_open,"全部计划书架","按书架浏览进行中、未开始、已完成与归档计划",null,true,v->Motion.open(this,new Intent(this,PlansActivity.class)));
+        ui.item(learn,R.drawable.ic_layers,"词汇关系","用思维导图整理近义、扩、同根、反义词群",null,true,v->Motion.open(this,new Intent(this,RelationActivity.class)));
+        ui.item(learn,R.drawable.ic_repeat,"混合训练","跨词组随机复习、拼写、错词强化与 AI 翻译",null,true,v->Motion.open(this,new Intent(this,PracticeSetupActivity.class)));
         content.addView(learn,WordUi.lp());
 
-        ui.section(content,"课程","内置词表");
-        lessonCard();
         completedSection();
     }
 
@@ -2059,10 +2074,10 @@ public class MainActivity extends ScreenActivity {
                 long now=System.currentTimeMillis();
                 long id=Store.prefs(this).getLong("nextId",0)+1;
                 JSONObject task=new JSONObject().put("id",id).put("title",name).put("description",description.getText().toString().trim()).put("stage",0).put("intervals",schedule).put("windows",windows).put("created",now).put("due",Schedule.due(now,schedule.getLong(0),Store.windows(windows))).put("history",new JSONArray()).put("snoozes",0).put("done",false);
-                JSONArray all=Store.tasks(this);
-                all.put(task);
-                Store.save(this,all);
-                Store.prefs(this).edit().putLong("nextId",id).apply();
+                LocalStore.inTransaction(this,()->{
+                    LocalStore.writeTaskLocked(LocalStore.database(),task,-1);
+                    Store.prefs(this).edit().putLong("nextId",id).apply();
+                });
                 boolean exact=Alarms.schedule(this,task);
                 currentPage=0;
                 settingsCategory=-1;
@@ -2096,8 +2111,7 @@ public class MainActivity extends ScreenActivity {
 
     private void complete(long id,int expectedStage){
         try{
-            JSONArray all=Store.tasks(this);
-            JSONObject task=Store.find(all,id);
+            JSONObject task=Store.find(this,id);
             if(task==null||task.optBoolean("done")||task.optInt("stage")!=expectedStage)return;
             long now=System.currentTimeMillis();
             int nextStage=expectedStage+1;
@@ -2106,7 +2120,7 @@ public class MainActivity extends ScreenActivity {
             Alarms.cancel(this,id);
             if(nextStage>=task.getJSONArray("intervals").length())task.put("done",true);
             else task.put("due",Schedule.due(now,task.getJSONArray("intervals").getLong(nextStage),Store.windows(task.optString("windows"))));
-            Store.save(this,all);
+            Store.saveTask(this,task);
             interaction.confirm(root);
             if(!task.optBoolean("done"))Alarms.schedule(this,task);
             renderAtScroll();
@@ -2142,14 +2156,13 @@ public class MainActivity extends ScreenActivity {
 
     private void applySnooze(long id,int which){
         try{
-            JSONArray all=Store.tasks(this);
-            JSONObject t=Store.find(all,id);
+            JSONObject t=Store.find(this,id);
             if(t==null||t.optBoolean("done")||t.optInt("snoozes")>=2)return;
             long now=System.currentTimeMillis();
             List<int[]> windows=Store.windows(t.optString("windows"));
             long next=snoozeTarget(which,windows,now);
             t.put("due",next).put("snoozes",t.optInt("snoozes")+1);
-            Store.save(this,all);
+            Store.saveTask(this,t);
             Alarms.cancel(this,id);
             Alarms.schedule(this,t);
             renderAtScroll();
@@ -2158,7 +2171,7 @@ public class MainActivity extends ScreenActivity {
     }
 
     private void details(long id){
-        JSONObject task=Store.find(Store.tasks(this),id);
+        JSONObject task=Store.find(this,id);
         if(task==null)return;
         int stage=task.optInt("stage"),total=totalRounds(task);
         boolean done=task.optBoolean("done");
@@ -2173,6 +2186,8 @@ public class MainActivity extends ScreenActivity {
             sheet.content(dots);
             sheet.item(R.drawable.ic_book_open,"计划复习",()->openReview(id,false));
             sheet.item(R.drawable.ic_repeat,"任意复习（不计轮次）",()->openReview(id,true));
+            sheet.item(R.drawable.ic_list,"打开计划书详情","查看目录、拼写、翻译与历史记录",()->Motion.open(this,new Intent(this,PlanDetailActivity.class).putExtra("taskId",id)));
+            sheet.item(R.drawable.ic_layers,"本组词汇关系","查看或 AI 整理思维导图",()->Motion.open(this,new Intent(this,RelationActivity.class).putExtra("taskId",id)));
             sheet.item(R.drawable.ic_list_checks,"词性义项练习",()->Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",id)));
             sheet.item(R.drawable.ic_pen_line,"重命名",()->renameTask(id));
             sheet.item(R.drawable.ic_pencil,"校对单词卡",()->Motion.open(this,new Intent(this,WordEditorActivity.class).putExtra("taskId",id)));
@@ -2262,11 +2277,10 @@ public class MainActivity extends ScreenActivity {
         sheet.secondary("取消",null);
         sheet.primaryIf("保存",()->{
             try{
-                JSONArray all=Store.tasks(this);
-                JSONObject current=Store.find(all,id);
+                JSONObject current=Store.find(this,id);
                 if(current==null){error("任务已不存在");return true;}
                 String name=TaskTitle.rename(current,title.getText().toString());
-                Store.save(this,all);
+                Store.saveTask(this,current);
                 renderAtScroll();
                 toast("已改名为「"+name+"」");
                 return true;
@@ -2296,16 +2310,10 @@ public class MainActivity extends ScreenActivity {
     }
 
     private void delete(long id){
-        JSONArray old=Store.tasks(this),out=new JSONArray();
-        String title="";
-        for(int i=0;i<old.length();i++){
-            JSONObject t=old.optJSONObject(i);
-            if(t==null)continue;
-            if(t.optLong("id")!=id)out.put(t);
-            else title=t.optString("title");
-        }
+        JSONObject existing=Store.find(this,id);
+        String title=existing==null?"":existing.optString("title");
         try{
-            Store.save(this,out);
+            Store.deleteTask(this,id);
         }catch(Exception e){
             error("删除失败："+e.getMessage());
             return;

@@ -71,7 +71,7 @@ public final class ExampleActivity extends ScreenActivity {
             saved = Math.max(0, state.getInt("saved"));
         }
         try {
-            JSONObject task = Store.find(Store.tasks(this), taskId);
+            JSONObject task = Store.find(this, taskId);
             if (task == null) throw new IllegalStateException("复习任务已不存在");
             words = task.getJSONArray("words");
             chrome();
@@ -103,23 +103,22 @@ public final class ExampleActivity extends ScreenActivity {
     // ── Page ─────────────────────────────────────────────────────────────────
 
     private void chrome() {
-        ui.startModal("补充例句");
+        ui.startModal("");
         Notice.setBottomOffset(this, 84);
+        counter = ui.barTitle;
+        counter.setTextSize(Theme.CALLOUT_SIZE);
+        counter.setTypeface(Theme.MEDIUM);
+        counter.setTextColor(Theme.INK_2);
+        counter.setFontFeatureSettings("tnum");
 
-        // Same header as review, spelling and the sense quiz: the line, then a quiet counter.
+        ui.body.setPadding(ui.dp(Theme.PAGE_PAD), ui.dp(Theme.SPACE_2), ui.dp(Theme.PAGE_PAD), ui.dp(Theme.SPACE_24));
         head = ui.col();
         progress = new ProgressLine(this);
         head.addView(progress, WordUi.lp());
-        counter = ui.type("", Theme.T_CALLOUT);
-        counter.setTextColor(Theme.INK_2);
-        counter.setFontFeatureSettings("tnum");
-        counter.setMinHeight(ui.dp(28));
-        counter.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(counter, ui.lpMargin(Theme.SPACE_12, 0));
         ui.body.addView(head, WordUi.lp());
 
         stage = ui.col();
-        ui.body.addView(stage, ui.lpMargin(Theme.SPACE_24, 0));
+        ui.body.addView(stage, ui.lpMargin(Theme.SPACE_20, 0));
     }
 
     private void show(boolean forward) {
@@ -135,7 +134,7 @@ public final class ExampleActivity extends ScreenActivity {
         }
 
         head.setVisibility(View.VISIBLE);
-        counter.setText((position + 1) + " / " + indices.length + " 个忘记的单词");
+        counter.setText("例句 · " + (position + 1) + " / " + indices.length);
         progress.set(position / (float) Math.max(1, indices.length), forward);
         stage.removeAllViews();
 
@@ -192,7 +191,6 @@ public final class ExampleActivity extends ScreenActivity {
         hint.setPadding(ui.dp(Theme.SPACE_4), 0, 0, 0);
         hint.setVisibility(View.GONE);
         stage.addView(hint, ui.lpMargin(Theme.SPACE_8, 0));
-        ui.note(stage, "例句会保存到这张单词卡，复习时一起显示。");
 
         boolean last = position + 1 == indices.length;
         Button later = ui.secondaryButton("稍后补充", v -> advance());
@@ -250,14 +248,13 @@ public final class ExampleActivity extends ScreenActivity {
             return;
         }
         try {
-            JSONArray all = Store.tasks(this);
-            JSONObject task = Store.find(all, taskId);
+            JSONObject task = Store.find(this, taskId);
             if (task == null) throw new IllegalStateException("复习任务已不存在");
             JSONArray currentWords = task.getJSONArray("words");
             JSONObject word = currentWords.optJSONObject(indices[position]);
             if (word == null) throw new IllegalStateException("单词卡已不存在");
             word.put("example", example);
-            Store.save(this, all);
+            Store.updateCard(this, taskId, indices[position], word);
             words = currentWords;
             saved++;
             interaction.respond(source, Feedback.KNOWN);
@@ -292,6 +289,7 @@ public final class ExampleActivity extends ScreenActivity {
         hideKeyboard(exampleInput != null ? exampleInput : stage);
         exampleInput = null;
         head.setVisibility(View.GONE);
+        if (counter != null) counter.setText("");
         stage.removeAllViews();
 
         int later = Math.max(0, indices.length - saved);

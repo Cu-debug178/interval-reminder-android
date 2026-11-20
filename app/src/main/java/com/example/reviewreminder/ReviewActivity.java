@@ -4,11 +4,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.LayerDrawable;
-import android.graphics.drawable.StateListDrawable;
-import android.graphics.Rect;
 import android.os.Bundle;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -16,6 +11,7 @@ import android.text.style.AbsoluteSizeSpan;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.widget.*;
@@ -30,16 +26,18 @@ import java.util.Locale;
 import java.util.UUID;
 
 /**
- * The flashcard session — the heart of the app.
+ * Immersive flashcard session.
  *
- * Anatomy: modal top bar (✕ · title · ⋯), a thin progress line with a quiet counter, one large
- * white card that fills the stage (first tap reveals, second tap continues as “记得”), and the
- * answer actions pinned at the bottom. Long-press opens the word editor. The speak control keeps
- * its own larger hit area and never flips or advances the card. The card leaves in the direction
- * of the answer and the next one arrives from behind it.
- * The summary is a calm completion moment with the round's numbers and the next step.
+ * Anatomy: modal top bar (✕ · title · 🔊 · ⋯), a thin progress line with a quiet counter, and one
+ * full-stage white card with zero buttons.
  *
- * Scheduling, mastery and wrong-book writes are unchanged from the previous design.
+ * Interactions:
+ *   - First tap on card: reveal answer
+ *   - Second tap on card (after reveal): “记得” (glides right)
+ *   - Swipe down on card (before or after reveal): “忘记” (glides down with live indicator & haptic)
+ *   - Long-press on card: edit word card
+ *   - Tap example sentence (when revealed): speak example sentence
+ *   - Tap inline relation summary (when revealed): open interactive word-relation mind map
  */
 public final class ReviewActivity extends ScreenActivity {
     private WordUi ui;
@@ -60,17 +58,19 @@ public final class ReviewActivity extends ScreenActivity {
     // Session chrome (kept while cards change; rebuilt after the summary).
     private boolean sessionChrome;
     private ProgressLine progress;
-    private TextView counter;
+    private TextView counter,forgetCue;
+    private ImageButton speakTop;
     private FrameLayout deck;
     /** Horizontal side the next card enters from: -1 left, 1 right, 0 rises in place. */
     private int enterFrom;
 
     // Current card parts.
     private JSONObject currentWord;
+    private boolean currentZh;
     private String currentExample="";
-    private View hairline,masteryRow,relationsRow;
+    private View hairline,categoryTag,masteryRow,relationsRow;
     private TextView back,sentence;
-    private Button pronounce;
+    private boolean gesturePromptShown;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -84,7 +84,7 @@ public final class ReviewActivity extends ScreenActivity {
         practice=getIntent().getBooleanExtra("practice",false)||selectionId!=null||(state!=null&&state.getBoolean("practice"));
         forceMode=getIntent().hasExtra("forceMode")?getIntent().getIntExtra("forceMode",-1):(state==null?-1:state.getInt("forceMode",-1));
         try{
-            JSONObject task=id==0?null:Store.find(Store.tasks(this),id);
+            JSONObject task=id==0?null:Store.find(this,id);
             if(selectionId!=null){
                 JSONObject selection=TrainingStore.selection(this,selectionId);
                 if(selection==null)throw new Exception("训练选词已失效");
@@ -119,7 +119,6 @@ public final class ReviewActivity extends ScreenActivity {
             }
             show();
         }catch(Exception e){
-            // Finish first so the message falls back to a system toast that outlives this screen.
             finish();
             ui.toast(e.getMessage());
         }
@@ -168,7 +167,7 @@ public final class ReviewActivity extends ScreenActivity {
             .show();
     }
 
-    // ── Direction & speech (unchanged behaviour) ──────────────────────────────
+    // ── Direction & speech ────────────────────────────────────────────────────
 
     private boolean chineseFirst(JSONObject word){
         if(forceMode==0)return false;
@@ -193,24 +192,30 @@ public final class ReviewActivity extends ScreenActivity {
 
     // ── Session page ──────────────────────────────────────────────────────────
 
-    /** Top bar, progress and an empty stage; built once per pass so cards can change in place. */
+    /** Minimal top strip (counter · 🔊 · ⋯), hairline progress, and a pure full-stage paper card. */
     private void buildSession(){
-        ui.startModal(practice?"任意复习":taskTitle,R.drawable.ic_ellipsis,"更多",v->more());
-        ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_4),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_12));
+        ui.startModal("",R.drawable.ic_ellipsis,"更多",v->more());
+        counter=ui.barTitle;
+        counter.setTextSize(Theme.CALLOUT_SIZE);
+        counter.setTypeface(Theme.MEDIUM);
+        counter.setTextColor(Theme.INK_2);
+        counter.setFontFeatureSettings("tnum");
+
+        // Quiet borderless speaker icon in the top bar — zero buttons on or beneath the card.
+        speakTop=ui.iconButton(R.drawable.ic_volume_2,"朗读单词",v->{
+            if(currentWord!=null)speak(currentWord.optString("english"),false);
+        });
+        speakTop.setImageTintList(ColorStateList.valueOf(Theme.INK_2));
+        if(ui.bar!=null&&ui.bar.getChildCount()>=2){
+            ui.bar.addView(speakTop,ui.bar.getChildCount()-1,new LinearLayout.LayoutParams(ui.dp(Theme.TOUCH),ui.dp(Theme.TOUCH)));
+        }
+
+        ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_2),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_20));
+        ui.pin(); // Explicitly hide footer for full-screen immersive card.
 
         progress=new ProgressLine(this);
         progress.set(0,false);
         ui.body.addView(progress,WordUi.lp());
-
-        LinearLayout meta=ui.row();
-        meta.setMinimumHeight(ui.dp(28));
-        counter=ui.type("",Theme.T_CALLOUT);
-        counter.setTextColor(Theme.INK_2);
-        counter.setFontFeatureSettings("tnum");
-        meta.addView(counter,WordUi.weight());
-        if(practice)meta.addView(ui.chip("不计计划轮次",Theme.SUNK,Theme.INK_2));
-        else if(!taskDone)meta.addView(ui.chip("第 "+(expectedStage+1)+" 轮",Theme.SUNK,Theme.INK_2));
-        ui.body.addView(meta,ui.lpMargin(Theme.SPACE_12,0));
 
         deck=new FrameLayout(this);
         deck.setClipChildren(false);
@@ -218,9 +223,58 @@ public final class ReviewActivity extends ScreenActivity {
         dp.topMargin=ui.dp(Theme.SPACE_16);
         ui.body.addView(deck,dp);
 
+        forgetCue=ui.type("↓ 下滑标记忘记",Theme.T_CALLOUT);
+        forgetCue.setTypeface(Theme.MEDIUM);
+        forgetCue.setGravity(Gravity.CENTER);
+        forgetCue.setPadding(ui.dp(Theme.SPACE_16),ui.dp(Theme.SPACE_8),ui.dp(Theme.SPACE_16),ui.dp(Theme.SPACE_8));
+        forgetCue.setAlpha(0f);
+
         sessionChrome=true;
         enterFrom=0;
-        Notice.setBottomOffset(this,Theme.BUTTON_HEIGHT+Theme.SPACE_24);
+        Notice.setBottomOffset(this,20);
+        maybeShowFirstRunGuide();
+    }
+
+    /** Shown once on the very first flashcard session so the card itself stays completely text-free. */
+    private void maybeShowFirstRunGuide(){
+        if(gesturePromptShown||Store.prefs(this).getBoolean("reviewGestureHintSeen",false))return;
+        gesturePromptShown=true;
+        ui.body.post(()->{
+            if(isFinishing()||isDestroyed())return;
+            showGestureGuide(true);
+        });
+    }
+
+    private void showGestureGuide(boolean markSeen){
+        LinearLayout list=ui.col();
+        guideRow(list,"轻点一次","查看中文释义、例句与相关词");
+        guideRow(list,"再次轻点","标记「记得」并进入下一张");
+        guideRow(list,"向下滑动","标记「忘记」（翻面前后均可）");
+        guideRow(list,"长按卡片","编辑当前单词卡");
+        guideRow(list,"手机返回键","退出本轮复习");
+        Sheet sheet=new Sheet(this)
+            .title("背词手势说明")
+            .message("背单词卡片不设按钮，专注看词与手势操作。")
+            .content(list)
+            .primary("知道了",()->{
+                if(markSeen)Store.prefs(this).edit().putBoolean("reviewGestureHintSeen",true).apply();
+            });
+        sheet.onDismiss(()->{
+            if(markSeen)Store.prefs(this).edit().putBoolean("reviewGestureHintSeen",true).apply();
+        });
+        sheet.show();
+    }
+
+    private void guideRow(LinearLayout parent,String gesture,String effect){
+        LinearLayout row=ui.row();
+        row.setPadding(0,ui.dp(Theme.SPACE_8),0,ui.dp(Theme.SPACE_8));
+        TextView g=ui.type(gesture,Theme.T_LABEL);
+        g.setTextColor(Theme.PRIMARY);
+        row.addView(g,new LinearLayout.LayoutParams(ui.dp(88),-2));
+        TextView e=ui.type(effect,Theme.T_CALLOUT);
+        e.setTextColor(Theme.INK);
+        row.addView(e,WordUi.weight());
+        parent.addView(row,WordUi.lp());
     }
 
     private void show(){
@@ -231,18 +285,21 @@ public final class ReviewActivity extends ScreenActivity {
         JSONObject word=words.optJSONObject(session.current());
         boolean zh=chineseFirst(word);
         currentWord=word;
+        currentZh=zh;
         currentExample=word.optString("example");
 
         counter.setText(counterText());
         progress.set(session.answered()/(float)session.total(),!fresh);
+        updateSpeakVisibility();
 
         View card=buildCard(word,zh);
         deck.removeAllViews();
+        resetForgetCue();
+        FrameLayout.LayoutParams cueLp=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+        cueLp.topMargin=ui.dp(Theme.SPACE_12);
+        deck.addView(forgetCue,cueLp);
         deck.addView(card,new FrameLayout.LayoutParams(-1,-1));
         cardView=card;
-
-        if(revealed)showFeedback();
-        else pinReveal();
 
         Motion.enter(card,enterFrom);
         enterFrom=0;
@@ -251,25 +308,40 @@ public final class ReviewActivity extends ScreenActivity {
         else if(!zh)speak(word.optString("english"),true);
     }
 
+    private void updateSpeakVisibility(){
+        if(speakTop==null)return;
+        boolean canSpeak=!currentZh||revealed;
+        speakTop.setVisibility(canSpeak?View.VISIBLE:View.INVISIBLE);
+        speakTop.setEnabled(canSpeak);
+    }
+
+    private void resetForgetCue(){
+        if(forgetCue==null)return;
+        forgetCue.animate().cancel();
+        forgetCue.setAlpha(0f);
+        forgetCue.setTranslationY(0f);
+        forgetCue.setText("↓ 下滑标记忘记");
+        forgetCue.setTextColor(Theme.INK_3);
+        forgetCue.setBackground(Theme.shape(this,Theme.SUNK,18));
+    }
+
     private String counterText(){return (session.answered()+1)+" / "+session.total();}
 
     /**
-     * One card: overline at the top, the prompt centred, the answer block reserved (INVISIBLE)
-     * underneath so revealing never shifts the layout, and pronunciation at the bottom.
+     * Pure immersive paper card with zero buttons and zero permanent hint copy.
      */
     private View buildCard(JSONObject word,boolean zh){
         LinearLayout card=ui.col();
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setMinimumHeight(ui.dp(360));
-        card.setPadding(ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_20));
+        card.setMinimumHeight(ui.dp(420));
+        card.setPadding(ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24));
         card.setBackground(Theme.shape(this,Theme.SURFACE,24));
 
-        // A forgotten card returns later in the queue (and the total grows); saying so keeps
-        // the counter's jump from reading as an error.
-        String side=zh?"中文释义":"英文单词";
-        TextView overline=ui.type(session.attemptsForCurrent()>0?"再看一次 · "+side:side,Theme.T_OVERLINE);
-        overline.setGravity(Gravity.CENTER);
-        card.addView(overline,WordUi.lp());
+        if(session.attemptsForCurrent()>0){
+            TextView retryTag=ui.type("再看一次",Theme.T_OVERLINE);
+            retryTag.setGravity(Gravity.CENTER);
+            card.addView(retryTag,WordUi.lp());
+        }
 
         LinearLayout content=ui.col();
         content.setGravity(Gravity.CENTER);
@@ -282,11 +354,11 @@ public final class ReviewActivity extends ScreenActivity {
         front.setTextColor(Theme.INK);
         if(zh){
             front.setTypeface(Theme.MEDIUM);
-            front.setTextSize(frontText.length()>18?20:24);
+            front.setTextSize(frontText.length()>18?22:26);
             front.setLineSpacing(0,1.3f);
         }else{
             front.setTypeface(Theme.SERIF);
-            front.setTextSize(headwordSize(frontText,36));
+            front.setTextSize(headwordSize(frontText,40));
             front.setLetterSpacing(-0.01f);
             front.setLineSpacing(0,1.1f);
         }
@@ -294,7 +366,7 @@ public final class ReviewActivity extends ScreenActivity {
 
         hairline=new View(this);
         hairline.setBackgroundColor(Theme.HAIRLINE);
-        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(ui.dp(32),Math.max(1,ui.dp(1)));
+        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(ui.dp(36),Math.max(1,ui.dp(1)));
         hp.topMargin=ui.dp(Theme.SPACE_24);
         hp.bottomMargin=ui.dp(Theme.SPACE_24);
         content.addView(hairline,hp);
@@ -306,23 +378,43 @@ public final class ReviewActivity extends ScreenActivity {
         back.setTextColor(Theme.INK);
         if(zh){
             back.setTypeface(Theme.SERIF);
-            back.setTextSize(headwordSize(backText,30));
+            back.setTextSize(headwordSize(backText,32));
             back.setLineSpacing(0,1.1f);
         }else{
             back.setTypeface(Theme.REGULAR);
-            back.setTextSize(20);
-            back.setLineSpacing(0,1.3f);
+            back.setTextSize(21);
+            back.setLineSpacing(0,1.35f);
         }
         content.addView(back,WordUi.lp());
 
+        // Example sentence: tap to pronounce without flipping or advancing the card (PRD VO-04).
         sentence=new TextView(this);
         sentence.setText(currentExample);
         sentence.setGravity(Gravity.CENTER);
         sentence.setTypeface(Theme.SERIF_ITALIC);
         sentence.setTextSize(15);
         sentence.setTextColor(Theme.INK_2);
-        sentence.setLineSpacing(0,1.3f);
-        content.addView(sentence,ui.lpMargin(Theme.SPACE_16,0));
+        sentence.setLineSpacing(0,1.35f);
+        sentence.setPadding(ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8),ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8));
+        sentence.setContentDescription("朗读例句："+currentExample);
+        sentence.setClickable(true);
+        sentence.setFocusable(true);
+        Theme.applyRipple(sentence,Theme.shape(this,Color.TRANSPARENT,Theme.RADIUS_CHIP),Theme.RIPPLE_LIGHT);
+        Motion.press(sentence,.98f);
+        sentence.setOnClickListener(v->{
+            if(!currentExample.isEmpty()&&speech!=null)speech.speak(currentExample,"review_example");
+        });
+        sentence.setOnLongClickListener(v->true);
+        content.addView(sentence,ui.lpMargin(Theme.SPACE_12,0));
+
+        String category=word.optString("category","").trim();
+        TextView catBadge=ui.chip(category,Theme.SUNK,Theme.INK_2);
+        LinearLayout.LayoutParams catLp=new LinearLayout.LayoutParams(-2,-2);
+        catLp.topMargin=ui.dp(Theme.SPACE_12);
+        catLp.gravity=Gravity.CENTER_HORIZONTAL;
+        catBadge.setVisibility(category.isEmpty()?View.GONE:(revealed?View.VISIBLE:View.INVISIBLE));
+        content.addView(catBadge,catLp);
+        categoryTag=catBadge;
 
         int level=Mastery.level(word);
         LinearLayout mastery=ui.row();
@@ -332,56 +424,78 @@ public final class ReviewActivity extends ScreenActivity {
         LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-2,-2);
         mp.leftMargin=ui.dp(Theme.SPACE_8);
         mastery.addView(masteryLabel,mp);
-        content.addView(mastery,ui.lpMargin(Theme.SPACE_24,0));
+        content.addView(mastery,ui.lpMargin(Theme.SPACE_20,0));
         masteryRow=mastery;
+
+        // Quiet inline relation link (no pill button chrome); tap opens interactive mind map.
         String relationLabel="";
         try{relationLabel=WordRelations.studyLabel(this,Words.stableId(word));}catch(Exception ignored){}
         boolean hasRelations=relationLabel!=null&&!relationLabel.isEmpty();
-        Button relations=ui.quietPill(hasRelations?relationLabel:"相关词",R.drawable.ic_layers,v->openRelations(word));
-        relations.setSingleLine(true);
-        relations.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        relations.setOnLongClickListener(v->true);
-        relations.setVisibility(hasRelations?(revealed?View.VISIBLE:View.INVISIBLE):View.GONE);
+        LinearLayout relStrip=ui.row();
+        relStrip.setGravity(Gravity.CENTER);
+        relStrip.setPadding(ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8),ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8));
+        relStrip.setBackground(Theme.shape(this,Color.TRANSPARENT,Theme.RADIUS_CHIP));
+        ImageView relIcon=ui.icon(R.drawable.ic_layers,Theme.PRIMARY);
+        LinearLayout.LayoutParams rip=new LinearLayout.LayoutParams(ui.dp(15),ui.dp(15));
+        rip.rightMargin=ui.dp(Theme.SPACE_6);
+        relStrip.addView(relIcon,rip);
+        TextView relText=ui.type(hasRelations?relationLabel:"",Theme.T_CAPTION);
+        relText.setTextColor(Theme.PRIMARY);
+        relText.setTypeface(Theme.MEDIUM);
+        relText.setSingleLine(true);
+        relText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        int maxRelWidth=Math.max(ui.dp(160),Math.min(ui.dp(420),getResources().getDisplayMetrics().widthPixels-ui.dp(148)));
+        relText.setMaxWidth(maxRelWidth);
+        relStrip.addView(relText);
+        ImageView relArrow=ui.icon(R.drawable.ic_chevron_right,Theme.PRIMARY);
+        LinearLayout.LayoutParams rap=new LinearLayout.LayoutParams(ui.dp(14),ui.dp(14));
+        rap.leftMargin=ui.dp(2);
+        relStrip.addView(relArrow,rap);
+        relStrip.setClickable(true);
+        relStrip.setFocusable(true);
+        relStrip.setContentDescription("查看相关词关联图："+relationLabel);
+        Theme.applyRipple(relStrip,relStrip.getBackground(),Theme.RIPPLE_ACCENT);
+        Motion.press(relStrip,.97f);
+        relStrip.setOnClickListener(v->openRelations(word));
+        relStrip.setOnLongClickListener(v->true);
+        relStrip.setVisibility(hasRelations?(revealed?View.VISIBLE:View.INVISIBLE):View.GONE);
         LinearLayout.LayoutParams relationLp=new LinearLayout.LayoutParams(-2,-2);
-        relationLp.topMargin=ui.dp(Theme.SPACE_16);
+        relationLp.topMargin=ui.dp(Theme.SPACE_12);
         relationLp.gravity=Gravity.CENTER_HORIZONTAL;
-        content.addView(relations,relationLp);
-        relationsRow=relations;
+        content.addView(relStrip,relationLp);
+        relationsRow=relStrip;
 
         card.addView(content,new LinearLayout.LayoutParams(-1,0,1));
-
-        pronounce=ui.quietPill("朗读单词",R.drawable.ic_volume_2,v->speak(word.optString("english"),false));
-        // A long-press on the speaker must not fall through into edit, reveal, or a second speak.
-        pronounce.setOnLongClickListener(v->true);
-        pronounce.setVisibility(!zh||revealed?View.VISIBLE:View.INVISIBLE);
-        LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-2,-2);
-        pp.gravity=Gravity.CENTER_HORIZONTAL;
-        card.addView(pronounce,pp);
 
         int answerState=revealed?View.VISIBLE:View.INVISIBLE;
         hairline.setVisibility(answerState);
         back.setVisibility(answerState);
         sentence.setVisibility(currentExample.isEmpty()?View.GONE:answerState);
         masteryRow.setVisibility(answerState);
-        bindCard(card,pronounce);
+        bindCard(card);
         return card;
     }
 
     /**
-     * Card gestures. A tap reveals, and the next tap does what “记得” does. A long-press opens the
-     * editor and cancels that tap. The speak pill is unchanged in size; touches in a wider margin
-     * around it are forwarded to the pill so a finger can hit it without flipping the card.
+     * Card gestures:
+     *   - Tap 1 reveals, Tap 2 marks “记得”
+     *   - Swipe down marks “忘记” (with finger-follow translation, live terracotta cue & haptic)
+     *   - Long-press opens word editor
      */
-    private void bindCard(View card,Button speak){
+    private void bindCard(View card){
         card.setClickable(true);
         card.setFocusable(true);
         card.setLongClickable(false);
         Theme.applyRipple(card,card.getBackground(),Theme.RIPPLE_LIGHT);
         final int slop=ViewConfiguration.get(this).getScaledTouchSlop();
         final int timeout=ViewConfiguration.getLongPressTimeout();
-        final int extra=ui.dp(16);
+        final float threshold=ui.dp(76);
+        final float flingDistance=ui.dp(42);
+        final float flingVelocity=ui.dp(560);
         final float[] down=new float[2];
-        final boolean[] speaking={false},held={false},swallow={false};
+        final boolean[] held={false},dragging={false},crossed={false};
+        final VelocityTracker[] tracker={null};
+
         final Runnable longPress=()->{
             held[0]=true;
             card.setPressed(false);
@@ -392,40 +506,89 @@ public final class ReviewActivity extends ScreenActivity {
             if(Store.prefs(this).getBoolean("haptic",true))card.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
             edit(currentWord);
         };
+
         card.setOnTouchListener((view,event)->{
             int action=event.getActionMasked();
             if(action==MotionEvent.ACTION_DOWN){
-                speaking[0]=speakHit(card,speak,event,extra);
                 held[0]=false;
-                swallow[0]=false;
-                down[0]=event.getX();
-                down[1]=event.getY();
+                dragging[0]=false;
+                crossed[0]=false;
+                down[0]=event.getRawX();
+                down[1]=event.getRawY();
+                if(tracker[0]!=null)tracker[0].recycle();
+                tracker[0]=VelocityTracker.obtain();
+                tracker[0].addMovement(event);
                 card.removeCallbacks(longPress);
-                if(speaking[0]){forwardSpeak(speak,event,true);return true;}
                 if(!changing)Feedback.press(view);
                 if(view.isEnabled()&&Motion.enabled(view.getContext()))
                     view.animate().scaleX(.99f).scaleY(.99f).setStartDelay(0).setDuration(90).setInterpolator(Motion.EASE).start();
                 card.postDelayed(longPress,timeout);
                 return false;
             }
-            if(speaking[0]){
-                boolean inside=speakHit(card,speak,event,extra);
-                if(!inside){forwardSpeak(speak,event,false);speaking[0]=false;swallow[0]=true;return true;}
-                forwardSpeak(speak,event,true);
-                if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)speaking[0]=false;
-                return true;
-            }
-            if(swallow[0]){
-                if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)swallow[0]=false;
-                return true;
-            }
+            if(tracker[0]!=null)tracker[0].addMovement(event);
+
             if(action==MotionEvent.ACTION_MOVE){
-                if(Math.hypot(event.getX()-down[0],event.getY()-down[1])>slop)card.removeCallbacks(longPress);
+                float dx=event.getRawX()-down[0];
+                float dy=event.getRawY()-down[1];
+                if(Math.hypot(dx,dy)>slop)card.removeCallbacks(longPress);
+                if(!dragging[0]&&!held[0]&&!changing&&dy>slop*1.2f&&dy>Math.abs(dx)*1.2f){
+                    dragging[0]=true;
+                    view.setPressed(false);
+                    Feedback.releasePress(view);
+                    view.animate().cancel();
+                    if(view.getParent()!=null)view.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                if(dragging[0]){
+                    float dragY=Math.max(0f,dy);
+                    float progressRatio=Math.min(1f,dragY/threshold);
+                    view.setTranslationY(dragY*0.86f);
+                    float s=1f-progressRatio*0.025f;
+                    view.setScaleX(s);
+                    view.setScaleY(s);
+                    boolean nowReady=dragY>=threshold;
+                    if(nowReady!=crossed[0]){
+                        crossed[0]=nowReady;
+                        if(nowReady)Feedback.tick(view);
+                        updateForgetCueStyle(nowReady);
+                    }
+                    if(forgetCue!=null){
+                        forgetCue.setAlpha(Math.min(1f,dragY/(threshold*0.5f)));
+                        forgetCue.setTranslationY(Math.min(ui.dp(12),dragY*0.14f));
+                    }
+                    return true;
+                }
                 return false;
             }
+
             if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
                 card.removeCallbacks(longPress);
                 Feedback.releasePress(view);
+                float dy=event.getRawY()-down[1];
+                float vy=0f;
+                if(tracker[0]!=null){
+                    tracker[0].computeCurrentVelocity(1000);
+                    vy=tracker[0].getYVelocity();
+                    tracker[0].recycle();
+                    tracker[0]=null;
+                }
+                if(dragging[0]){
+                    dragging[0]=false;
+                    boolean commit=action==MotionEvent.ACTION_UP&&!changing
+                        &&(dy>=threshold||(dy>=flingDistance&&vy>=flingVelocity));
+                    if(commit){
+                        if(forgetCue!=null)forgetCue.animate().alpha(0f).setDuration(100).start();
+                        answer(false,session.answered(),view,true);
+                    }else{
+                        if(Motion.enabled(view.getContext())){
+                            view.animate().translationY(0).scaleX(1).scaleY(1).setStartDelay(0).setDuration(200).setInterpolator(Motion.EASE_OUT).start();
+                            if(forgetCue!=null)forgetCue.animate().alpha(0f).translationY(0f).setDuration(160).withEndAction(this::resetForgetCue).start();
+                        }else{
+                            view.setTranslationY(0);view.setScaleX(1);view.setScaleY(1);
+                            resetForgetCue();
+                        }
+                    }
+                    return true;
+                }
                 if(Motion.enabled(view.getContext()))
                     view.animate().scaleX(1).scaleY(1).setStartDelay(0).setDuration(Theme.PRESS_MS+60).setInterpolator(Motion.EASE_OUT).start();
                 else{view.setScaleX(1);view.setScaleY(1);}
@@ -434,51 +597,40 @@ public final class ReviewActivity extends ScreenActivity {
             }
             return false;
         });
+
         card.setOnClickListener(v->{
             if(changing||currentWord==null)return;
             if(!revealed)revealAnswer(v);
-            else answer(true,session.answered(),v);
+            else answer(true,session.answered(),v,false);
         });
     }
 
-    /** Expanded finger target around the speak pill. The pill's own layout is left alone. */
-    private boolean speakHit(View card,Button speak,MotionEvent event,int extra){
-        if(speak==null||speak.getVisibility()!=View.VISIBLE||speak.getWidth()==0)return false;
-        Rect rect=new Rect();
-        speak.getHitRect(rect);
-        rect.inset(-extra,-extra);
-        if(rect.left<0)rect.left=0;
-        if(rect.top<0)rect.top=0;
-        if(rect.right>card.getWidth())rect.right=card.getWidth();
-        if(rect.bottom>card.getHeight())rect.bottom=card.getHeight();
-        return rect.contains((int)event.getX(),(int)event.getY());
-    }
-
-    /** Sends the gesture to the center of the pill when the finger is inside the expanded target. */
-    private void forwardSpeak(Button speak,MotionEvent event,boolean inside){
-        MotionEvent copy=MotionEvent.obtain(event);
-        if(inside)copy.setLocation(speak.getWidth()/2f,speak.getHeight()/2f);
-        else{copy.setAction(MotionEvent.ACTION_CANCEL);copy.setLocation(speak.getWidth()/2f,speak.getHeight()/2f);}
-        speak.dispatchTouchEvent(copy);
-        copy.recycle();
+    private void updateForgetCueStyle(boolean ready){
+        if(forgetCue==null)return;
+        if(ready){
+            forgetCue.setText("松手标记忘记");
+            forgetCue.setTextColor(Theme.DANGER);
+            forgetCue.setBackground(Theme.shape(this,Theme.DANGER_SOFT,18));
+        }else{
+            forgetCue.setText("↓ 下滑标记忘记");
+            forgetCue.setTextColor(Theme.INK_3);
+            forgetCue.setBackground(Theme.shape(this,Theme.SUNK,18));
+        }
     }
 
     /** Long headwords step down so they keep to one or two calm lines. */
     private static int headwordSize(String value,int base){
         int n=value==null?0:value.length();
-        if(n>22)return base-10;
+        if(n>22)return base-12;
         if(n>13)return base-6;
         return base;
-    }
-
-    private void pinReveal(){
-        ui.pin(ui.primaryButton("显示答案",this::revealAnswer));
     }
 
     private void revealAnswer(View source){
         if(revealed||changing)return;
         interaction.reveal(source);
         revealed=true;
+        updateSpeakVisibility();
 
         hairline.setVisibility(View.VISIBLE);
         back.setVisibility(View.VISIBLE);
@@ -490,35 +642,27 @@ public final class ReviewActivity extends ScreenActivity {
             Motion.enter(sentence,0,delay);
             delay+=30;
         }
+        if(categoryTag!=null&&categoryTag.getVisibility()!=View.GONE){
+            categoryTag.setVisibility(View.VISIBLE);
+            Motion.enter(categoryTag,0,delay);
+            delay+=20;
+        }
         masteryRow.setVisibility(View.VISIBLE);
         Motion.enter(masteryRow,0,delay);
         if(relationsRow!=null&&relationsRow.getVisibility()!=View.GONE){
             relationsRow.setVisibility(View.VISIBLE);
             Motion.enter(relationsRow,0,delay);
         }
-        if(pronounce.getVisibility()!=View.VISIBLE){
-            pronounce.setVisibility(View.VISIBLE);
-            Motion.enter(pronounce,0,delay);
-        }
         cardView.setScaleX(1);
         cardView.setScaleY(1);
 
         lastAutoSpoken=-1;
         speakWordThenExample(currentWord.optString("english"),currentExample,true);
-        showFeedback();
-        View pair=ui.footer.getChildAt(0);
-        if(pair!=null)Motion.enter(pair);
     }
 
-    private void showFeedback(){
-        final int position=session.answered();
-        ui.pinPair(
-            ui.secondaryButton("忘记了",v->answer(false,position,v)),
-            ui.primaryButton("记得",v->answer(true,position,v)));
-    }
-
-    private void answer(boolean known,int expected,View source){
-        if(changing||!revealed||session.ended()||session.answered()!=expected)return;
+    private void answer(boolean known,int expected,View source,boolean swipeDown){
+        if(changing||session.ended()||session.answered()!=expected)return;
+        if(known&&!revealed)return;
         boolean firstAttempt=session.attemptsForCurrent()==0;
         JSONObject word=words.optJSONObject(session.current());
         long sourceTask=word==null?id:word.optLong("_taskId",id);
@@ -529,6 +673,10 @@ public final class ReviewActivity extends ScreenActivity {
             if(!practice&&sourceTask>0)Mastery.applyAnswer(this,sourceTask,sourceIndex,known,firstAttempt,words,wordId);
         }catch(Exception e){
             ui.error("结果保存失败，尚未提交本题："+e.getMessage());
+            if(swipeDown&&cardView!=null){
+                cardView.animate().translationY(0).scaleX(1).scaleY(1).setDuration(180).start();
+                resetForgetCue();
+            }
             return;
         }
         interaction.respond(source,known?Feedback.KNOWN:Feedback.RETRY);
@@ -538,16 +686,22 @@ public final class ReviewActivity extends ScreenActivity {
         answers.append(known?'1':'0');
         revealed=false;
 
-        // Progress moves at once; the card follows the answer — 记得 to the right, 忘记了 to the left.
         progress.set(session.answered()/(float)session.total(),true);
         if(!session.ended())counter.setText(counterText());
-        int toward=known?1:-1;
-        enterFrom=-toward;
-        Motion.leave(cardView,-toward,()->{
+
+        Runnable next=()->{
             if(isFinishing()||isDestroyed())return;
             changing=false;
             show();
-        });
+        };
+        if(swipeDown){
+            enterFrom=0;
+            Motion.leaveDown(cardView,next);
+        }else{
+            int toward=known?1:-1;
+            enterFrom=-toward;
+            Motion.leave(cardView,-toward,next);
+        }
     }
 
     // ── Card menu & edit ──────────────────────────────────────────────────────
@@ -556,25 +710,50 @@ public final class ReviewActivity extends ScreenActivity {
         if(changing||currentWord==null)return;
         JSONObject word=currentWord;
         Sheet sheet=new Sheet(this)
-            .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文或例句",()->edit(word))
-            .item(R.drawable.ic_layers,"相关词","近义、词形与归纳",()->openRelations(word));
+            .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文、类别或例句",()->edit(word))
+            .item(R.drawable.ic_layers,"相关词","近义、扩、同根、反义与关系图",()->openRelations(word))
+            .item(R.drawable.ic_circle_alert,"手势说明","轻点翻面 / 记得，下滑忘记，长按编辑",()->showGestureGuide(false));
         if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看附带图片",()->Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english"))));
         sheet.show();
     }
 
     private void openRelations(JSONObject word){
         if(word==null)return;
-        String id=Words.stableId(word);
-        Motion.open(this,new Intent(this,RelationActivity.class).putExtra("wordId",id).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese")));
+        String wid=Words.stableId(word);
+        Motion.open(this,new Intent(this,RelationActivity.class).putExtra("wordId",wid).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese")));
     }
 
     private void edit(JSONObject word){
         LinearLayout form=ui.col();
         EditText en=formField(form,"英文","",word.optString("english"));
         EditText zh=formField(form,"中文","",word.optString("chinese"));
+        EditText cat=formField(form,"所属类别","可留空，如“优秀的”相关",word.optString("category"));
+        cat.setSingleLine(true);
+        java.util.LinkedHashSet<String> cats=new java.util.LinkedHashSet<>();
+        if(words!=null)for(int i=0;i<words.length();i++){
+            JSONObject w=words.optJSONObject(i);
+            String c=w==null?"":w.optString("category","").trim();
+            if(!c.isEmpty())cats.add(c);
+        }
+        if(!cats.isEmpty()){
+            LinearLayout chipRow=ui.row();
+            for(String existing:cats){
+                TextView chip=ui.chip(existing,Theme.PRIMARY_SOFT,Theme.PRIMARY);
+                chip.setPadding(ui.dp(10),ui.dp(5),ui.dp(10),ui.dp(5));
+                chip.setClickable(true);chip.setFocusable(true);
+                Theme.applyRipple(chip,chip.getBackground(),Theme.RIPPLE_ACCENT);
+                Motion.press(chip,.95f);
+                chip.setOnClickListener(v->{cat.setText(existing);cat.setSelection(existing.length());Feedback.tick(v);});
+                LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,-2);
+                if(chipRow.getChildCount()>0)cp.leftMargin=ui.dp(6);
+                chipRow.addView(chip,cp);
+            }
+            HorizontalScrollView hsv=new HorizontalScrollView(this);
+            hsv.setHorizontalScrollBarEnabled(false);
+            hsv.addView(chipRow);
+            form.addView(hsv,ui.lpMargin(Theme.SPACE_8,0));
+        }
         EditText ex=formField(form,"例句","可留空",word.optString("example"));
-        // The sheet is its own window and covers bottom notices, so a failed
-        // save is reported inline, right under the fields.
         TextView failure=ui.type("",Theme.T_CALLOUT);
         failure.setTextColor(Theme.DANGER);
         failure.setPadding(ui.dp(Theme.SPACE_4),0,ui.dp(Theme.SPACE_4),0);
@@ -592,28 +771,31 @@ public final class ReviewActivity extends ScreenActivity {
                 }
                 Object oldEnglish=word.opt("english");
                 Object oldChinese=word.opt("chinese");
+                Object oldCategory=word.opt("category");
                 Object oldExample=word.opt("example");
                 try{
                     long targetId=word.optLong("_taskId",id);
                     int hint=word.has("_wordIndex")?word.optInt("_wordIndex"):session.current();
                     String wordId=Words.stableId(word);
-                    JSONArray all=Store.tasks(this);
-                    JSONObject current=Store.find(all,targetId);
+                    JSONObject current=Store.find(this,targetId);
                     if(current==null)throw new Exception("任务不存在");
                     JSONArray stored=current.optJSONArray("words");
                     int located=Words.locate(stored,hint,wordId);
                     if(located<0)throw new Exception("单词卡已不存在");
                     JSONObject target=stored.getJSONObject(located);
                     Words.stableId(target);
+                    String nextCat=cat.getText().toString().trim();
                     target.put("english",en.getText().toString().trim())
                         .put("chinese",zh.getText().toString().trim())
+                        .put("category",nextCat)
                         .put("example",ex.getText().toString().trim());
-                    word.put("english",target.optString("english")).put("chinese",target.optString("chinese")).put("example",target.optString("example")).put("wordId",Words.stableId(target));
-                    Store.save(this,all);
+                    word.put("english",target.optString("english")).put("chinese",target.optString("chinese")).put("category",nextCat).put("example",target.optString("example")).put("wordId",Words.stableId(target));
+                    Store.updateCard(this,targetId,located,target);
                     if(selectionId!=null)TrainingStore.updateWord(this,selectionId,word);
                 }catch(Exception e){
                     restore(word,"english",oldEnglish);
                     restore(word,"chinese",oldChinese);
+                    restore(word,"category",oldCategory);
                     restore(word,"example",oldExample);
                     String reason=e.getMessage();
                     failure.setText("保存失败："+(reason==null||reason.isEmpty()?"请稍后重试":reason));
@@ -653,10 +835,11 @@ public final class ReviewActivity extends ScreenActivity {
     private void summary(){
         sessionChrome=false;
         cardView=null;
+        speakTop=null;
         ui.startModal(practice?"任意复习":taskTitle);
         LinearLayout body=ui.body;
 
-        JSONObject task=Store.find(Store.tasks(this),id);
+        JSONObject task=Store.find(this,id);
         boolean eligible=!practice&&task!=null&&!task.optBoolean("done")&&task.optInt("stage")==expectedStage;
 
         LinearLayout hero=ui.col();
@@ -669,7 +852,7 @@ public final class ReviewActivity extends ScreenActivity {
         TextView title=ui.type(practice?"这次练习结束了":"本轮已看完",Theme.T_TITLE);
         title.setGravity(Gravity.CENTER);
         hero.addView(title,ui.lpMargin(Theme.SPACE_20,0));
-        TextView sentenceLine=ui.type("共 "+words.length()+" 个单词，标记“忘记了” "+session.repeats()+" 次",Theme.T_CALLOUT);
+        TextView sentenceLine=ui.type("共 "+words.length()+" 个单词，标记“忘记” "+session.repeats()+" 次",Theme.T_CALLOUT);
         sentenceLine.setGravity(Gravity.CENTER);
         hero.addView(sentenceLine,ui.lpMargin(Theme.SPACE_8,0));
         body.addView(hero,WordUi.lp());
@@ -712,7 +895,6 @@ public final class ReviewActivity extends ScreenActivity {
         LinearLayout links=ui.row();
         links.setGravity(Gravity.CENTER);
         Button moreOptions=ui.textButton("更多选项",v->summaryMore());
-        // Leaving an eligible round asks first, exactly like ✕ and system back.
         Button home=ui.textButton("返回主页",v->{if(eligible)onBackPressed();else finish();});
         home.setTextColor(Theme.INK_2);
         links.addView(moreOptions);
@@ -731,19 +913,16 @@ public final class ReviewActivity extends ScreenActivity {
         syncNoticeOffset();
     }
 
-    /** Names what the completion action will actually do, given the saved spelling default. */
     private String completeLabel(){
         SharedPreferences prefs=Store.prefs(this);
         if(!prefs.getBoolean("spellingConfigured",false)||prefs.getBoolean("askSpellingMode",false))return "完成本轮并选择拼写";
         int saved=prefs.getInt("spellingMode",SpellingPlan.NONE);
         if(saved==SpellingPlan.ALL)return "完成并拼写";
         if(saved==SpellingPlan.WRONG_ONLY)return "完成并拼写错词";
-        // complete() still adds this round's forgotten words when that option is on.
         if(prefs.getBoolean("spellForgottenWords",false)&&session.repeats()>0)return "完成并拼写忘记的词";
         return "完成本轮";
     }
 
-    /** One line under the numbers that says what happens next. */
     private String summaryHint(JSONObject task,boolean eligible){
         if(practice)return "任意复习不计入计划轮次，也不会推进提醒。";
         if(task==null)return null;
@@ -800,7 +979,6 @@ public final class ReviewActivity extends ScreenActivity {
         parent.addView(line,new LinearLayout.LayoutParams(Math.max(1,ui.dp(.75f)),ui.dp(32)));
     }
 
-    /** Keeps result notices above the pinned footer. */
     private void syncNoticeOffset(){
         ui.footer.post(()->{
             float density=getResources().getDisplayMetrics().density;
@@ -849,8 +1027,6 @@ public final class ReviewActivity extends ScreenActivity {
             return;
         }
 
-        // The sheet opens at once with a quiet loading state; the result replaces it in place.
-        // AiClient.cancel() only interrupts the worker, so late callbacks are filtered by identity.
         LinearLayout loading=ui.col();
         loading.setGravity(Gravity.CENTER_HORIZONTAL);
         loading.setPadding(0,ui.dp(Theme.SPACE_12),0,ui.dp(Theme.SPACE_8));
@@ -955,7 +1131,6 @@ public final class ReviewActivity extends ScreenActivity {
         sheet.show();
     }
 
-    /** A roomy selectable row: white with a hairline, pine-tinted with a filled mark when chosen. */
     private RadioButton choiceRow(String label,int id){return ui.choice(label,null,id);}
 
     private static void paintChoices(RadioGroup group){
@@ -967,17 +1142,12 @@ public final class ReviewActivity extends ScreenActivity {
 
     private CheckBox checkBox(String label,boolean checked){return ui.check(label,checked);}
 
-    /**
-     * A forward step that replaces this screen. finish() plays the "back" transition, so the
-     * forward one is applied last and the next page keeps sliding in from the trailing edge.
-     */
     private void forward(Intent next){Motion.replace(this,next);}
 
     private void complete(int spellingMode){
         if(completed)return;
         try{
-            JSONArray all=Store.tasks(this);
-            JSONObject task=Store.find(all,id);
+            JSONObject task=Store.find(this,id);
             if(task==null||task.optBoolean("done")||task.optInt("stage")!=expectedStage){
                 finish();
                 ui.toast("本轮状态已变化，未重复推进阶段");
@@ -990,7 +1160,10 @@ public final class ReviewActivity extends ScreenActivity {
             task.put("stage",next).put("snoozes",0);
             if(next>=task.getJSONArray("intervals").length())task.put("done",true);
             else task.put("due",Schedule.due(now,task.getJSONArray("intervals").getLong(next),Store.windows(task.optString("windows"))));
-            if(!Store.prefs(this).edit().putString("tasks",all.toString()).putInt("spellingMode",spellingMode).commit())throw new IllegalStateException("复习结果未能写入设备");
+            LocalStore.inTransaction(this,()->{
+                LocalStore.writeTaskLocked(LocalStore.database(),task,-1);
+                if(!Store.prefs(this).edit().putInt("spellingMode",spellingMode).commit())throw new IllegalStateException("复习结果未能写入设备");
+            });
             Alarms.cancel(this,id);
             if(!task.optBoolean("done"))Alarms.schedule(this,task);
             completed=true;
@@ -1029,7 +1202,6 @@ public final class ReviewActivity extends ScreenActivity {
             }else{
                 String msg=task.optBoolean("done")?"已完成全部 "+next+" 轮":"已完成第 "+next+" 轮 · 下次 "+when(task.optLong("due"));
                 finish();
-                // Shown after finish() so it survives the transition as a system toast.
                 ui.toast(msg);
             }
         }catch(Exception e){

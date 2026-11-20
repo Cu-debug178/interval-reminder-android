@@ -151,24 +151,29 @@ public final class SpellingActivity extends ScreenActivity {
     }
 
     private void chrome() {
-        ui.startModal(wrongMode ? "错词强化" : "拼写练习");
+        ui.startModal("");
         Notice.setBottomOffset(this, 84);
+        counter = ui.barTitle;
+        counter.setTextSize(Theme.CALLOUT_SIZE);
+        counter.setTypeface(Theme.MEDIUM);
+        counter.setTextColor(Theme.INK_2);
+        counter.setFontFeatureSettings("tnum");
+
+        tally = ui.type("", Theme.T_CAPTION);
+        tally.setFontFeatureSettings("tnum");
+        tally.setPadding(0, 0, ui.dp(Theme.PAGE_PAD), 0);
+        if (ui.bar != null) {
+            if (ui.bar.getChildCount() > 1) ui.bar.removeViewAt(ui.bar.getChildCount() - 1);
+            ui.bar.addView(tally, new LinearLayout.LayoutParams(-2, -2));
+        }
+
+        ui.body.setPadding(ui.dp(Theme.PAGE_PAD), ui.dp(Theme.SPACE_2), ui.dp(Theme.PAGE_PAD), ui.dp(Theme.SPACE_24));
         head = ui.col();
         progress = new ProgressLine(this);
         head.addView(progress, WordUi.lp());
-        LinearLayout line = ui.row();
-        line.setMinimumHeight(ui.dp(28));
-        counter = ui.type("", Theme.T_CALLOUT);
-        counter.setTextColor(Theme.INK_2);
-        counter.setFontFeatureSettings("tnum");
-        line.addView(counter, WordUi.weight());
-        tally = ui.type("", Theme.T_CAPTION);
-        tally.setFontFeatureSettings("tnum");
-        line.addView(tally);
-        head.addView(line, ui.lpMargin(Theme.SPACE_12, 0));
         ui.body.addView(head, WordUi.lp());
         stage = ui.col();
-        ui.body.addView(stage, ui.lpMargin(Theme.SPACE_24, 0));
+        ui.body.addView(stage, ui.lpMargin(Theme.SPACE_20, 0));
     }
 
     private void show(boolean forward) {
@@ -205,7 +210,7 @@ public final class SpellingActivity extends ScreenActivity {
         String english = word.optString("english").trim();
         String example = word.optString("example", "");
         head.setVisibility(View.VISIBLE);
-        String progressText = "已完成 " + session.finishedCount() + " / " + session.initialTotal();
+        String progressText = (wrongMode ? "错词 · " : "") + session.finishedCount() + " / " + session.initialTotal();
         if (wrongMode) progressText += " · 连续 " + session.currentStreak(wordId) + "/2";
         counter.setText(progressText);
         updateTally();
@@ -213,13 +218,9 @@ public final class SpellingActivity extends ScreenActivity {
         stage.removeAllViews();
 
         LinearLayout card = ui.card();
-        card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setMinimumHeight(ui.dp(196));
-        card.setPadding(ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_32), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_32));
-        TextView overline = ui.type(wrongMode ? "错词强化 · 根据释义拼写" : "根据释义拼写单词", Theme.T_OVERLINE);
-        overline.setGravity(Gravity.CENTER);
-        card.addView(overline, WordUi.lp());
-        ui.gap(card, Theme.SPACE_20);
+        card.setGravity(Gravity.CENTER);
+        card.setMinimumHeight(ui.dp(176));
+        card.setPadding(ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_24));
         TextView meaning = ui.type(word.optString("chinese", ""), Theme.T_TITLE);
         meaning.setTextSize(22);
         meaning.setTypeface(Theme.MEDIUM);
@@ -404,7 +405,18 @@ public final class SpellingActivity extends ScreenActivity {
         answerInput.setTextColor(ink);
         int flags = answerInput.getPaintFlags();
         answerInput.setPaintFlags(correct ? flags & ~Paint.STRIKE_THRU_TEXT_FLAG : flags | Paint.STRIKE_THRU_TEXT_FLAG);
-        if (exampleView != null) exampleView.setText(word.optString("example", ""));
+        if (exampleView != null) {
+            final String fullExample = word.optString("example", "").trim();
+            exampleView.setText(fullExample);
+            if (!fullExample.isEmpty()) {
+                exampleView.setClickable(true);
+                exampleView.setFocusable(true);
+                exampleView.setContentDescription("朗读例句：" + fullExample);
+                Theme.applyRipple(exampleView, Theme.shape(this, android.graphics.Color.TRANSPARENT, Theme.RADIUS_CHIP), Theme.RIPPLE_LIGHT);
+                Motion.press(exampleView, .98f);
+                exampleView.setOnClickListener(v -> speech.speak(fullExample, "spelling_example"));
+            }
+        }
         verdict.removeAllViews();
         if (correct && !assisted) {
             LinearLayout line = ui.row();
@@ -492,6 +504,8 @@ public final class SpellingActivity extends ScreenActivity {
         hideKeyboard(answerInput != null ? answerInput : stage);
         answerInput = null;
         head.setVisibility(View.GONE);
+        if (counter != null) counter.setText("");
+        if (tally != null) tally.setText("");
         stage.removeAllViews();
         interaction.confirm(ui.body);
         TextView title = ui.type("拼写完成", Theme.T_TITLE);
@@ -558,8 +572,7 @@ public final class SpellingActivity extends ScreenActivity {
     private void saveResult() {
         if (historyAt <= 0 || session == null) return;
         try {
-            JSONArray tasks = Store.tasks(this);
-            JSONObject task = Store.find(tasks, taskId);
+            JSONObject task = Store.find(this, taskId);
             if (task == null) return;
             JSONArray history = task.optJSONArray("history");
             if (history == null) return;
@@ -571,7 +584,7 @@ public final class SpellingActivity extends ScreenActivity {
                             .put("spellingWrong", session.wrongCount())
                             .put("spellingSkipped", session.skippedCount())
                             .put("spellingCompleted", session.ended());
-                    Store.save(this, tasks);
+                    Store.saveTask(this, task);
                     return;
                 }
             }

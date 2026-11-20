@@ -1,6 +1,9 @@
 package com.example.reviewreminder;
 
+import android.content.ContentValues;
 import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.*;
@@ -12,6 +15,7 @@ import java.util.Set;
 
 public final class Words {
     private Words() {}
+
     public static JSONArray array(List<WordParser.Entry> entries) throws Exception {
         JSONArray out=new JSONArray();
         for(WordParser.Entry e:entries){
@@ -21,6 +25,7 @@ public final class Words {
         }
         return out;
     }
+
     /** Stable across plans while keeping different meanings as separate records. */
     public static String stableId(JSONObject word){
         if(word==null)return "";
@@ -40,6 +45,7 @@ public final class Words {
             return fallback;
         }
     }
+
     /**
      * Saved cards first, then extra cards (an unsaved draft) whose id is not already listed.
      * A card without {@code wordId} still joins under {@link #stableId}, so overlay data and a
@@ -52,6 +58,7 @@ public final class Words {
         addCatalog(out,seen,extras);
         return out;
     }
+
     private static void addCatalog(JSONArray out,Set<String> seen,JSONArray words) throws Exception {
         if(words==null)return;
         for(int i=0;i<words.length();i++){
@@ -61,9 +68,13 @@ public final class Words {
             JSONObject copy=new JSONObject(word.toString());
             String id=stableId(copy);
             if(id.isEmpty()||!seen.add(id))continue;
-            out.put(new JSONObject().put("wordId",id).put("english",copy.optString("english")).put("chinese",copy.optString("chinese")));
+            JSONObject row=new JSONObject().put("wordId",id).put("english",copy.optString("english")).put("chinese",copy.optString("chinese")).put("example",copy.optString("example"));
+            String cat=copy.optString("category","").trim();
+            if(!cat.isEmpty())row.put("category",cat);
+            out.put(row);
         }
     }
+
     /** Prefer the hinted card when it still has this id; otherwise find the card after edits or reordering. */
     public static int locate(JSONArray words,int hint,String wordId){
         if(words==null)return -1;
@@ -80,23 +91,43 @@ public final class Words {
         }
         return hint>=0&&hint<words.length()&&words.optJSONObject(hint)!=null?hint:-1;
     }
+
     public static String read(InputStream in) throws IOException {
         try(InputStream source=in;ByteArrayOutputStream out=new ByteArrayOutputStream()) {byte[] b=new byte[8192];int n;while((n=source.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}
     }
+
     public static void writeDraft(Context c,JSONObject draft) throws Exception {
-        File tmp=new File(c.getFilesDir(),"draft.tmp"),target=new File(c.getFilesDir(),"word-draft.json");
-        try(FileOutputStream out=new FileOutputStream(tmp)){out.write(draft.toString().getBytes("UTF-8"));out.getFD().sync();}
-        if(!tmp.renameTo(target))throw new IOException("无法保存草稿");
+        LocalStore.inTransaction(c,()->{
+            ContentValues cv=new ContentValues();
+            cv.put("id","current");
+            cv.put("json",draft.toString());
+            cv.put("updated_at",System.currentTimeMillis());
+            LocalStore.database().insertWithOnConflict("draft_store",null,cv,SQLiteDatabase.CONFLICT_REPLACE);
+        });
     }
+
     public static JSONObject draft(Context c) throws Exception {
-        File f=new File(c.getFilesDir(),"word-draft.json");return f.exists()?new JSONObject(read(new FileInputStream(f))):new JSONObject().put("title","").put("words",new JSONArray()).put("photos",new JSONArray());
+        return LocalStore.inRead(c,()->{
+            Cursor cur=LocalStore.database().rawQuery("SELECT json FROM draft_store WHERE id='current'",null);
+            try{
+                if(cur.moveToFirst()){
+                    String raw=cur.getString(0);
+                    if(raw!=null&&!raw.trim().isEmpty())return new JSONObject(raw);
+                }
+            }finally{cur.close();}
+            return new JSONObject().put("title","").put("words",new JSONArray()).put("photos",new JSONArray());
+        });
     }
-    public static void clearDraft(Context c){new File(c.getFilesDir(),"word-draft.json").delete();}
+
+    public static void clearDraft(Context c){
+        try{LocalStore.inTransaction(c,()->LocalStore.database().delete("draft_store","id='current'",null));}
+        catch(Exception ignored){}
+        new File(c.getFilesDir(),"word-draft.json").delete();
+    }
+
     public static boolean hasDraft(Context c){
-        File f=new File(c.getFilesDir(),"word-draft.json");
-        if(!f.exists())return false;
         try{
-            JSONObject draft=new JSONObject(read(new FileInputStream(f)));
+            JSONObject draft=draft(c);
             JSONArray words=draft.optJSONArray("words");
             if(words==null)return false;
             for(int i=0;i<words.length();i++){
@@ -106,6 +137,7 @@ public final class Words {
             return false;
         }catch(Exception e){return false;}
     }
+
     public static void lesson(Context c) throws Exception {
         JSONObject d=new JSONObject().put("title","Lesson 1").put("source","内置 Lesson 1 词表，待校对");
         d.put("words",array(WordParser.parse(read(c.getAssets().open("lesson1/words.tsv")))));

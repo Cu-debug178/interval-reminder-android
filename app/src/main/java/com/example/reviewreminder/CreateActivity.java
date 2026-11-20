@@ -62,7 +62,10 @@ public final class CreateActivity extends ScreenActivity {
                 generation = state.getInt("generation", 0);
             }
             if (wordIndex < 0 || wordIndex >= pool.length()) pickWord();
-            ui.startModal("创造力造句");
+            ui.startModal("造句");
+            ui.barTitle.setTextSize(Theme.CALLOUT_SIZE);
+            ui.barTitle.setTypeface(Theme.MEDIUM);
+            ui.barTitle.setTextColor(Theme.INK_2);
             Notice.setBottomOffset(this, 84);
             show(false);
         } catch (Exception e) {
@@ -151,18 +154,10 @@ public final class CreateActivity extends ScreenActivity {
         String english = item.optString("english");
         ui.body.removeAllViews();
 
-        TextView intro = ui.type("用指定单词写一句英文，AI 会批改并记录问题。", Theme.T_CALLOUT);
-        intro.setPadding(ui.dp(Theme.SPACE_4), 0, ui.dp(Theme.SPACE_4), 0);
-        ui.body.addView(intro, WordUi.lp());
-
         // Prompt card: the word to use, set in serif like a dictionary headword.
         LinearLayout card = ui.card();
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setPadding(ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_32), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_32));
-        TextView over = ui.type("用这个词造句", Theme.T_OVERLINE);
-        over.setGravity(Gravity.CENTER);
-        card.addView(over, WordUi.lp());
-        ui.gap(card, Theme.SPACE_16);
+        card.setPadding(ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_24), ui.dp(Theme.SPACE_24));
         prompt = ui.type(english, Theme.T_DISPLAY);
         prompt.setTypeface(Theme.SERIF);
         prompt.setTextSize(34);
@@ -176,7 +171,7 @@ public final class CreateActivity extends ScreenActivity {
             zh.setGravity(Gravity.CENTER);
             card.addView(zh, WordUi.lp());
         }
-        ui.body.addView(card, ui.lpMargin(Theme.SPACE_16, 0));
+        ui.body.addView(card, WordUi.lp());
 
         // Writing field.
         TextView label = ui.sectionLabel("你的造句");

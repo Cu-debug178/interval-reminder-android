@@ -199,6 +199,60 @@ public final class CoreTest {
         check(graph.getJSONArray("links").length()==2,"replace does not mutate the current graph");
         try{WordGraph.merge(WordGraph.empty(),new JSONObject().put("links",new JSONArray().put(new JSONObject().put("a","w_apple").put("b","w_apple").put("kind","meaning"))),false);throw new AssertionError("accepted a backed-up self link");}catch(IllegalArgumentException expected){checks++;}
 
+        // Rich mind-map relation kinds, directed derive edges, offline mind-map parser, and import resolution.
+        check(WordGraph.normalizeKind("扩").equals(WordGraph.DERIVE),"normalize 扩 to derive");
+        check(WordGraph.normalizeKind("同根").equals(WordGraph.ROOT),"normalize 同根 to root");
+        check(WordGraph.normalizeKind("反义").equals(WordGraph.ANTONYM),"normalize 反义 to antonym");
+        check(WordGraph.normalizeKind("近义").equals(WordGraph.MEANING),"normalize 近义 to meaning");
+        check(WordGraph.kindLabel(WordGraph.DERIVE).equals("扩")&&WordGraph.kindLabel(WordGraph.ROOT).equals("同根")&&WordGraph.kindLabel(WordGraph.ANTONYM).equals("反义"),"extended kind labels");
+
+        String mindMapSample="# “优秀的”相关\n"
+            +"eminent adj. 杰出的，有名的\n"
+            +"  -扩> eminence n. 卓越；显赫\n"
+            +"  -近义> prominent adj. 显著的；突出的\n"
+            +"    -扩> prominence n. 突出\n"
+            +"  -近义> outstanding adj. 杰出的\n"
+            +"grand adj. 宏伟的；壮丽的\n"
+            +"  -近义> magnificent adj. 壮丽的\n"
+            +"    -同根> magnitude n. 巨大\n"
+            +"    -同根> magnify v. 放大\n";
+        JSONObject parsedMap=WordGraph.parseMindMapText(mindMapSample);
+        check(parsedMap!=null&&"“优秀的”相关".equals(parsedMap.optString("title")),"mind-map parser extracts topic title");
+        check(parsedMap.getJSONArray("words").length()==9,"mind-map parser extracts all 9 words");
+        check(parsedMap.getJSONArray("groups").length()==1,"mind-map parser extracts 1 topic group");
+        check(parsedMap.getJSONArray("links").length()==7,"mind-map parser extracts all 7 labeled edges");
+        check(WordGraph.parseMindMapText("apple 苹果\nbanana 香蕉")==null,"plain word list returns null from mind-map parser");
+
+        JSONObject mapGraph=WordGraph.empty();
+        int[] imported=WordGraph.applyImportedRelations(mapGraph,parsedMap.getJSONArray("words"),parsedMap.getJSONArray("groups"),parsedMap.getJSONArray("links"));
+        check(imported[0]==1&&imported[1]==7,"applyImportedRelations persists 1 group and 7 links");
+        String gid=mapGraph.getJSONArray("groups").getJSONObject(0).getString("id");
+        JSONArray meta=WordGraph.memberMetaOf(mapGraph,gid);
+        check(meta.length()==9,"all 9 words join the mind-map group");
+        int rootCount=0;for(int i=0;i<meta.length();i++)if(meta.getJSONObject(i).optBoolean("isRoot"))rootCount++;
+        check(rootCount==2,"eminent and grand are marked as core branch roots");
+        String eminentId=Words.stableId(parsedMap.getJSONArray("words").getJSONObject(0));
+        String eminentLabel=WordGraph.studyLabel(mapGraph,parsedMap.getJSONArray("words"),eminentId);
+        check(eminentLabel.contains("扩")&&eminentLabel.contains("eminence")&&eminentLabel.contains("近义")&&eminentLabel.contains("prominent"),"study label surfaces both 扩 and 近义 neighbors");
+        check("“优秀的”相关".equals(parsedMap.getJSONArray("words").getJSONObject(0).optString("category")),"single-topic mind-map assigns category to word");
+
+        // Multi-category single-paste import assigns distinct categories per section.
+        String multiMap=
+            "# “优秀的”相关\n"+
+            "eminent adj. 杰出的\n"+
+            "  -扩> eminence n. 卓越\n"+
+            "# “雄心与进取”相关\n"+
+            "ambition n. 雄心\n"+
+            "  -扩> ambitious adj. 有雄心的\n";
+        JSONObject parsedMulti=WordGraph.parseMindMapText(multiMap);
+        check(parsedMulti!=null&&parsedMulti.getJSONArray("groups").length()==2,"multi-category text parses 2 groups");
+        JSONArray multiWords=parsedMulti.getJSONArray("words");
+        check(multiWords.length()==4,"multi-category text parses 4 words");
+        check("“优秀的”相关".equals(multiWords.getJSONObject(0).optString("category")),"first cluster word gets first category");
+        check("“优秀的”相关".equals(multiWords.getJSONObject(1).optString("category")),"derived child inherits first category");
+        check("“雄心与进取”相关".equals(multiWords.getJSONObject(2).optString("category")),"second cluster word gets second category");
+        check("“雄心与进取”相关".equals(multiWords.getJSONObject(3).optString("category")),"second cluster child gets second category");
+
         System.out.println("CoreTest: "+checks+" checks passed");
     }
 

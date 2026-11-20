@@ -131,7 +131,7 @@ public final class ImportActivity extends ScreenActivity {
         // Lead: what this page does, in one calm sentence.
         TextView title=ui.type("收录新单词",Theme.T_TITLE);
         body.addView(title,ui.lpMargin(Theme.SPACE_8,0));
-        TextView lead=ui.type("拍下课本或词表，或直接粘贴文字。整理好的单词卡会先交给你校对，确认后再排进复习计划。",Theme.T_CALLOUT);
+        TextView lead=ui.type("拍下课本词表或词汇关系思维导图，或粘贴词表/关系文本。AI 会自动提取单词卡、类别与词汇关系，校对确认后排进复习计划。",Theme.T_CALLOUT);
         body.addView(lead,ui.lpMargin(Theme.SPACE_8,0));
 
         // Pick up where you left off.
@@ -143,8 +143,8 @@ public final class ImportActivity extends ScreenActivity {
         if(hasPhotos)photoSection(body);
 
         // Photo entry tiles.
-        ui.section(body,hasPhotos?"继续添加":"拍照识词",null);
-        body.addView(tile(R.drawable.ic_camera,"拍摄单词照片","对准课本或词表，可连拍多张",v->camera()),ui.lp());
+        ui.section(body,hasPhotos?"继续添加":"拍照识词 · 自动识别词汇关系",null);
+        body.addView(tile(R.drawable.ic_camera,"拍摄单词或关系图照片","支持词表页与教材思维导图，可连拍多张",v->camera()),ui.lp());
         ui.gap(body,Theme.SPACE_12);
         body.addView(tile(R.drawable.ic_images,"从相册选择（可多选）","一次最多 12 张",v->gallery()),ui.lp());
         if(aiReady){
@@ -181,7 +181,7 @@ public final class ImportActivity extends ScreenActivity {
 
     private View draftBanner(){
         String name="";
-        int count=0;
+        int count=0,relGroups=0,relLinks=0;
         try{
             JSONObject draft=Words.draft(this);
             name=draft.optString("title","").trim();
@@ -190,8 +190,12 @@ public final class ImportActivity extends ScreenActivity {
                 JSONObject w=words.optJSONObject(i);
                 if(w!=null&&!w.optString("english","").trim().isEmpty())count++;
             }
+            JSONArray dg=draft.optJSONArray("draftGroups");
+            JSONArray dl=draft.optJSONArray("draftLinks");
+            relGroups=dg==null?0:dg.length();
+            relLinks=dl==null?0:dl.length();
         }catch(Exception ignored){}
-        String detail=(name.isEmpty()?"未命名词组":name)+(count>0?" · "+count+" 个词":"");
+        String detail=(name.isEmpty()?"未命名词组":name)+(count>0?" · "+count+" 个词":"")+(relGroups>0||relLinks>0?" · 含关联图":"");
 
         LinearLayout row=ui.row();
         row.setMinimumHeight(ui.dp(76));
@@ -407,7 +411,7 @@ public final class ImportActivity extends ScreenActivity {
         lineCount=ui.type("",Theme.T_CAPTION);
         head.addView(lineCount);
 
-        source=ui.input("例如：\nambition n. 野心\nconquer v. 征服",sourceText);
+        source=ui.input("例如普通词表：\nambition n. 野心\n\n或关联图格式：\n# “优秀的”相关\neminent adj. 杰出的\n  -扩> eminence n. 卓越\n  -近义> prominent adj. 显著的",sourceText);
         source.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         source.setMinLines(5);
         source.setMaxLines(12);
@@ -421,7 +425,7 @@ public final class ImportActivity extends ScreenActivity {
         });
         body.addView(source,ui.lp());
         updateLineCount();
-        ui.note(body,"任意格式都可以：带音标、词性或编号都没关系。");
+        ui.note(body,"任意词表格式都可以；用“# 主题”和缩进“-扩> / -近义> / -同根>”可离线直接生成关联图。");
         ui.gap(body,Theme.SPACE_16);
 
         // With photos waiting, recognition is the page's primary; text organising steps back.
@@ -613,10 +617,13 @@ public final class ImportActivity extends ScreenActivity {
                             busy=false;
                             try{
                                 JSONArray cleaned=cleanAiWords(json);
-                                saveDraft(cleaned,paths,"云端识图草稿，待校对");
+                                JSONArray groups=json.optJSONArray("groups");
+                                JSONArray links=json.optJSONArray("links");
+                                String suggestedTitle=json.optString("title","").trim();
+                                saveDraft(cleaned,paths,"云端识图草稿，待校对",suggestedTitle,groups,links);
                                 pendingPhotos.clear();
                                 thumbs.clear();
-                                drafted(cleaned.length());
+                                drafted(cleaned.length(),groups==null?0:groups.length(),links==null?0:links.length());
                             }catch(Exception e){home();ui.error("识别失败："+e.getMessage());}
                         }
                         @Override public void onError(String message){
@@ -670,9 +677,22 @@ public final class ImportActivity extends ScreenActivity {
         try{
             keepSource();
             String raw=source==null?"":source.getText().toString();
+            JSONObject map=WordGraph.parseMindMapText(raw);
+            if(map!=null){
+                JSONArray found=map.getJSONArray("words");
+                JSONArray groups=map.optJSONArray("groups");
+                JSONArray links=map.optJSONArray("links");
+                String suggested=map.optString("title","");
+                saveDraft(found,new JSONArray(),"本地关联图解析草稿，待校对",suggested,groups,links);
+                renderDraft(true);
+                int g=groups==null?0:groups.length(),l=links==null?0:links.length();
+                ui.toast("已解析 "+found.length()+" 个单词"+(g>0||l>0?" · "+g+" 组关联图（"+l+" 条连线）":""));
+                edit();
+                return;
+            }
             JSONArray found=Words.array(WordParser.parse(raw));
             if(found.length()==0){ui.error("未解析出单词，可改用 AI 整理或手动添加");return;}
-            saveDraft(found,new JSONArray(),"本地解析草稿，待校对");
+            saveDraft(found,new JSONArray(),"本地解析草稿，待校对","",null,null);
             renderDraft(true);
             ui.toast("已解析 "+found.length()+" 个单词");
             edit();
@@ -688,16 +708,19 @@ public final class ImportActivity extends ScreenActivity {
             if(source!=null)source.requestFocus();
             return;
         }
-        loading(R.drawable.ic_sparkles,"正在整理单词卡…","AI 会补全释义与例句，稍后交给你校对");
+        loading(R.drawable.ic_sparkles,"正在整理单词卡…","AI 会补全释义、例句与关联关系，稍后交给你校对");
         pending=AiClient.chatJson(this,AiPrompts.systemImport(),AiPrompts.userImport(raw),new AiClient.Callback(){
             @Override public void onResult(JSONObject json){
                 if(!alive())return;
                 busy=false;
                 try{
                     JSONArray cleaned=cleanAiWords(json);
-                    saveDraft(cleaned,new JSONArray(),"AI 整理草稿，待校对");
+                    JSONArray groups=json.optJSONArray("groups");
+                    JSONArray links=json.optJSONArray("links");
+                    String suggestedTitle=json.optString("title","").trim();
+                    saveDraft(cleaned,new JSONArray(),"AI 整理草稿，待校对",suggestedTitle,groups,links);
                     sourceText="";
-                    drafted(cleaned.length());
+                    drafted(cleaned.length(),groups==null?0:groups.length(),links==null?0:links.length());
                 }catch(Exception e){home();ui.error("整理失败："+e.getMessage());}
             }
             @Override public void onError(String message){
@@ -713,6 +736,26 @@ public final class ImportActivity extends ScreenActivity {
     private JSONArray cleanAiWords(JSONObject json)throws Exception{
         JSONArray words=json.optJSONArray("words");
         if(words==null||words.length()==0)throw new Exception("模型没有返回单词卡");
+        Map<String,String> groupCategory=new HashMap<>();
+        JSONArray groups=json.optJSONArray("groups");
+        if(groups!=null){
+            for(int i=0;i<groups.length();i++){
+                JSONObject g=groups.optJSONObject(i);
+                if(g==null)continue;
+                String gname=g.optString("name","").trim();
+                if(gname.isEmpty())continue;
+                JSONArray roots=g.optJSONArray("roots");
+                for(int j=0;roots!=null&&j<roots.length();j++){
+                    String key=WordGraph.letters(roots.optString(j));
+                    if(!key.isEmpty()&&!groupCategory.containsKey(key))groupCategory.put(key,gname);
+                }
+                JSONArray members=g.optJSONArray("members");
+                for(int j=0;members!=null&&j<members.length();j++){
+                    String key=WordGraph.letters(members.optString(j));
+                    if(!key.isEmpty()&&!groupCategory.containsKey(key))groupCategory.put(key,gname);
+                }
+            }
+        }
         JSONArray cleaned=new JSONArray();
         for(int i=0;i<words.length();i++){
             JSONObject w=words.optJSONObject(i);
@@ -723,6 +766,10 @@ public final class ImportActivity extends ScreenActivity {
                 .put("english",en)
                 .put("chinese",w.optString("chinese","").trim())
                 .put("example",w.optString("example","").trim());
+            String cat=w.optString("category","").trim();
+            if(cat.isEmpty())cat=groupCategory.getOrDefault(WordGraph.letters(en),"");
+            if(!cat.isEmpty())card.put("category",cat);
+            Words.stableId(card);
             JSONArray senses=w.optJSONArray("senses");
             if(senses!=null&&senses.length()>0)card.put("senses",senses);
             else{try{Senses.ensure(card);}catch(Exception ignored){}}
@@ -734,8 +781,10 @@ public final class ImportActivity extends ScreenActivity {
 
     private void applyAiWords(JSONObject json,JSONArray photoPaths,String sourceLabel)throws Exception{
         JSONArray cleaned=cleanAiWords(json);
-        saveDraft(cleaned,photoPaths==null?new JSONArray():photoPaths,sourceLabel);
-        drafted(cleaned.length());
+        JSONArray groups=json.optJSONArray("groups");
+        JSONArray links=json.optJSONArray("links");
+        saveDraft(cleaned,photoPaths==null?new JSONArray():photoPaths,sourceLabel,json.optString("title","").trim(),groups,links);
+        drafted(cleaned.length(),groups==null?0:groups.length(),links==null?0:links.length());
     }
 
     private void applyAiWords(JSONObject json,String photoPath,String sourceLabel)throws Exception{
@@ -745,17 +794,22 @@ public final class ImportActivity extends ScreenActivity {
     }
 
     /** Draft saved: back to the landing (now showing the draft), confirm, then choose how to proofread. */
-    private void drafted(int count){
+    private void drafted(int count,int groupCount,int linkCount){
         home();
         Feedback.tick(ui.body);
-        ui.toast("已生成 "+count+" 张单词卡");
+        String msg="已生成 "+count+" 张单词卡";
+        if(groupCount>0||linkCount>0)msg+=" · 识别 "+groupCount+" 组关联图（"+linkCount+" 条连线）";
+        ui.toast(msg);
         edit();
     }
 
-    private void saveDraft(JSONArray words,JSONArray photos,String sourceLabel)throws Exception{
+    private void saveDraft(JSONArray words,JSONArray photos,String sourceLabel,String suggestedTitle,JSONArray draftGroups,JSONArray draftLinks)throws Exception{
         JSONObject draft=Words.draft(this);
         draft.put("words",words).put("rawOcr","").put("source",sourceLabel).put("photos",photos==null?new JSONArray():photos);
-        if(draft.optString("title","").trim().isEmpty())draft.put("title","");
+        if(suggestedTitle!=null&&!suggestedTitle.trim().isEmpty())draft.put("title",suggestedTitle.trim());
+        else if(draft.optString("title","").trim().isEmpty())draft.put("title","");
+        draft.put("draftGroups",draftGroups==null?new JSONArray():draftGroups);
+        draft.put("draftLinks",draftLinks==null?new JSONArray():draftLinks);
         Words.writeDraft(this,draft);
     }
 

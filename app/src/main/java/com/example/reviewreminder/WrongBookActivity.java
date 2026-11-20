@@ -30,16 +30,24 @@ import java.util.concurrent.Future;
  * roots, clear). Store writes, intents and AI calls are unchanged from the previous screen.
  */
 public final class WrongBookActivity extends ScreenActivity {
+    private static final String[] STATUS_FILTERS={"全部","未掌握","学习中","已掌握"};
     private WordUi ui;
     private Future<?> pending;
     /** One AI request at a time; set when a result sheet opens, cleared by its callback or dismissal. */
     private boolean aiBusy;
     private boolean rendered;
+    private int statusFilter;
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         ui=new WordUi(this);
+        if(state!=null)statusFilter=state.getInt("statusFilter",0);
         ui.start("错题本");
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out){
+        out.putInt("statusFilter",statusFilter);
+        super.onSaveInstanceState(out);
     }
 
     @Override protected void onResume(){
@@ -65,14 +73,50 @@ public final class WrongBookActivity extends ScreenActivity {
 
         if(rows.isEmpty()){
             ui.gap(body,Theme.SPACE_16);
-            body.addView(ui.empty(R.drawable.ic_book_x,"还没有错词","复习时选择“忘记了”，或拼写没有独立答对，都会收录到这里。连续两次独立拼对记为已掌握。",null,null),WordUi.lp());
+            body.addView(ui.empty(R.drawable.ic_book_x,"还没有错词","复习时下滑标记“忘记”，或拼写没有独立答对，都会收录到这里。连续两次独立拼对记为已掌握。",null,null),WordUi.lp());
         }else{
-            body.addView(overview(rows.size()),WordUi.lp());
-            ui.section(body,"需要巩固","掌握度从低到高");
-            LinearLayout group=ui.group();
-            for(Object[] row:rows)addWord(group,(JSONObject)row[0],(JSONObject)row[1],(Integer)row[2],(JSONObject)row[3]);
-            body.addView(group,WordUi.lp());
-            ui.note(body,"点按单词可以拼写、练习义项或查看 AI 分析。");
+            int unmastered=0,learning=0,mastered=0;
+            for(Object[] row:rows){
+                int streak=((JSONObject)row[3]).optInt("streak",0);
+                if(streak>=2)mastered++;else if(streak==1)learning++;else unmastered++;
+            }
+            body.addView(overview(rows.size(),unmastered+learning,rows),WordUi.lp());
+
+            // Status filter chips (PRD UI-01: 未掌握 / 学习中 / 已掌握筛选).
+            int[] counts={rows.size(),unmastered,learning,mastered};
+            LinearLayout chipRow=ui.row();
+            for(int i=0;i<STATUS_FILTERS.length;i++){
+                final int idx=i;
+                boolean on=statusFilter==idx;
+                TextView chip=ui.chip(STATUS_FILTERS[i]+(counts[i]>0?" "+counts[i]:""),on?Theme.PRIMARY:Theme.SUNK,on?android.graphics.Color.WHITE:Theme.INK_2);
+                chip.setPadding(dp(12),dp(6),dp(12),dp(6));
+                chip.setClickable(true);chip.setFocusable(true);
+                Theme.applyRipple(chip,chip.getBackground(),on?Theme.RIPPLE_DARK:Theme.RIPPLE_LIGHT);
+                Motion.press(chip,.95f);
+                chip.setOnClickListener(v->{statusFilter=idx;Feedback.tick(v);render();});
+                LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,-2);
+                if(i>0)cp.leftMargin=dp(Theme.SPACE_8);
+                chipRow.addView(chip,cp);
+            }
+            android.widget.HorizontalScrollView hsv=new android.widget.HorizontalScrollView(this);
+            hsv.setHorizontalScrollBarEnabled(false);
+            hsv.addView(chipRow);
+            body.addView(hsv,ui.lpMargin(Theme.SPACE_16,0));
+
+            List<Object[]> filtered=new ArrayList<>();
+            for(Object[] row:rows){
+                int streak=((JSONObject)row[3]).optInt("streak",0);
+                if(statusFilter==0||(statusFilter==1&&streak==0)||(statusFilter==2&&streak==1)||(statusFilter==3&&streak>=2))filtered.add(row);
+            }
+            ui.section(body,STATUS_FILTERS[statusFilter]+"错词","掌握度从低到高 · "+filtered.size()+" 词");
+            if(filtered.isEmpty()){
+                body.addView(ui.type("当前状态没有错词。",Theme.T_CALLOUT),WordUi.lp());
+            }else{
+                LinearLayout group=ui.group();
+                for(Object[] row:filtered)addWord(group,(JSONObject)row[0],(JSONObject)row[1],(Integer)row[2],(JSONObject)row[3]);
+                body.addView(group,WordUi.lp());
+                ui.note(body,"点按单词可以拼写强化、查看拼写历史、打开词汇关系或查看 AI 分析。");
+            }
         }
 
         if(mistakes.length()>0)addMistakes(body,mistakes);
@@ -109,8 +153,9 @@ public final class WrongBookActivity extends ScreenActivity {
         return rows;
     }
 
-    /** Count of words to work on, plus the AI scenario across all of them. */
-    private View overview(int count){
+    /** Count of words to work on, plus 1-tap wrong-word drill and AI scenario. */
+    private View overview(int count,int pendingCount,List<Object[]> rows){
+        LinearLayout wrap=ui.col();
         LinearLayout box=ui.row();
         box.setGravity(Gravity.BOTTOM);
         box.setPadding(dp(Theme.SPACE_4),dp(Theme.SPACE_8),0,0);
@@ -126,15 +171,41 @@ public final class WrongBookActivity extends ScreenActivity {
         unit.setPadding(dp(Theme.SPACE_6),0,0,dp(3));
         figure.addView(unit);
         copy.addView(figure);
-        TextView caption=ui.type("优先练习掌握度最低的词",Theme.T_CAPTION);
+        TextView caption=ui.type(pendingCount>0?pendingCount+" 个待掌握 · 连续独立拼对两次记为已掌握":"全部错词均已掌握",Theme.T_CAPTION);
         caption.setPadding(0,dp(Theme.SPACE_6),0,0);
         copy.addView(caption);
         box.addView(copy,WordUi.weight());
 
-        Button scenario=ui.pill("AI 情景短文",R.drawable.ic_sparkles,v->aiScenarioAll());
+        Button scenario=ui.quietPill("AI 情景短文",R.drawable.ic_sparkles,v->aiScenarioAll());
         scenario.setContentDescription("AI 情景短文（全部错词）");
         box.addView(scenario,new LinearLayout.LayoutParams(-2,-2));
-        return box;
+        wrap.addView(box,WordUi.lp());
+
+        if(pendingCount>0){
+            Button drill=ui.primaryButton("错词专项强化（"+pendingCount+" 词）",v->startWrongDrill(rows));
+            wrap.addView(drill,ui.lpMargin(Theme.SPACE_16,0));
+        }
+        return wrap;
+    }
+
+    private void startWrongDrill(List<Object[]> rows){
+        try{
+            JSONArray out=new JSONArray();
+            for(Object[] row:rows){
+                JSONObject st=(JSONObject)row[3];
+                if(st.optInt("streak",0)>=2)continue;
+                JSONObject task=(JSONObject)row[0],word=(JSONObject)row[1];
+                int idx=(Integer)row[2];
+                JSONObject copy=new JSONObject(word.toString());
+                copy.put("_taskId",task.optLong("id")).put("_wordIndex",idx).put("wordId",Words.stableId(word));
+                out.put(copy);
+            }
+            if(out.length()==0){ui.toast("没有未掌握的错词");return;}
+            String selection=TrainingStore.createSelection(this,out);
+            Motion.open(this,new Intent(this,SpellingActivity.class)
+                .putExtra("selectionId",selection).putExtra("wrongMode",true)
+                .putExtra("sessionId",UUID.randomUUID().toString()).putExtra("attemptId",UUID.randomUUID().toString()));
+        }catch(Exception e){ui.error(message(e));}
     }
 
     private void addWord(LinearLayout group,JSONObject task,JSONObject word,int index,JSONObject state){
@@ -280,12 +351,41 @@ public final class WrongBookActivity extends ScreenActivity {
             try{WrongBook.unmaster(this,taskId,index);render();ui.toast("已标为未掌握");}
             catch(Exception e){ui.error(message(e));}
         });
+        sheet.item(R.drawable.ic_clock,"拼写与错误历史","查看该词历次独立/提示/错题记录",()->showAttemptHistory(word));
+        sheet.item(R.drawable.ic_layers,"相关词","查看近义、扩、同根关系与思维导图",()->
+                Motion.open(this,new Intent(this,RelationActivity.class).putExtra("wordId",Words.stableId(word)).putExtra("english",word.optString("english")).putExtra("chinese",word.optString("chinese"))));
         sheet.item(R.drawable.ic_list_checks,"义项练习","练习本组中的错词义项",()->
                 Motion.open(this,new Intent(this,SenseQuizActivity.class).putExtra("taskId",taskId).putExtra("wrongOnly",true)));
         sheet.item(R.drawable.ic_sparkles,"AI 分析",note.isEmpty()?"记忆钩子、易混点与建议":"重新生成并替换已有分析",()->aiAnalyze(taskId,index,word));
-        sheet.item(R.drawable.ic_layers,"词根对比","词根、派生词与形近词",()->aiRoots(word));
+        sheet.item(R.drawable.ic_book_open,"词根对比","词根、派生词与形近词",()->aiRoots(word));
         sheet.dangerItem(R.drawable.ic_trash_2,"清除记录",()->confirmClear(taskId,index,word));
         sheet.show();
+    }
+
+    private void showAttemptHistory(JSONObject word){
+        JSONArray attempts=WrongBook.attempts(this,Words.stableId(word));
+        LinearLayout box=ui.col();
+        if(attempts.length()==0){
+            box.addView(ui.type("暂无逐次作答记录",Theme.T_CALLOUT));
+        }else{
+            java.text.SimpleDateFormat fmt=new java.text.SimpleDateFormat("M月d日 HH:mm",java.util.Locale.CHINA);
+            int cap=Math.min(20,attempts.length());
+            for(int i=0;i<cap;i++){
+                JSONObject a=attempts.optJSONObject(i);
+                if(a==null)continue;
+                String type=a.optString("type");
+                String label="independent".equals(type)?"独立拼写正确":"assisted".equals(type)?"提示/跳过（不计掌握）":"拼写错误/标记忘记";
+                int color="independent".equals(type)?Theme.PRIMARY:"assisted".equals(type)?Theme.WARN:Theme.DANGER;
+                LinearLayout row=ui.row();
+                row.setPadding(0,dp(6),0,dp(6));
+                TextView l=ui.type(label,Theme.T_CALLOUT);
+                l.setTextColor(color);
+                row.addView(l,WordUi.weight());
+                row.addView(ui.type(fmt.format(new java.util.Date(a.optLong("at"))),Theme.T_CAPTION));
+                box.addView(row,WordUi.lp());
+            }
+        }
+        new Sheet(this).title(word.optString("english")+" · 练习历史").content(box).secondary("关闭",null).show();
     }
 
     private void startSpelling(long taskId,int index){
@@ -336,15 +436,12 @@ public final class WrongBookActivity extends ScreenActivity {
                 String text="记忆钩子："+json.optString("hooks")+"\n易混点："+json.optString("confusion")+"\n建议："+json.optString("tip");
                 String saveError=null;
                 try{
-                    JSONArray tasks=Store.tasks(WrongBookActivity.this);
-                    JSONObject task=Store.find(tasks,taskId);
+                    JSONObject task=Store.find(WrongBookActivity.this,taskId);
                     if(task!=null){
                         JSONArray words=task.getJSONArray("words");
                         JSONObject saved=words.getJSONObject(index);
                         AiNotes.putWordNote(saved,"aiAnalysis",text);
-                        words.put(index,saved);
-                        task.put("words",words);
-                        Store.save(WrongBookActivity.this,tasks);
+                        Store.updateCard(WrongBookActivity.this,taskId,index,saved);
                     }
                 }catch(Exception e){
                     saveError=message(e);

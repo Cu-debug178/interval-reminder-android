@@ -6,19 +6,19 @@ final class AiPrompts {
     static final String JSON_ONLY="只输出合法 JSON，不要 markdown 代码块，不要解释文字。";
 
     static String systemImport(){
-        return "你是英语单词卡整理助手。把用户给出的词表或单词列表整理为复习卡片。"+JSON_ONLY+
-            "格式：{\"words\":[{\"english\":\"...\",\"chinese\":\"...\",\"example\":\"...\",\"senses\":[{\"pos\":\"n.\",\"meaning\":\"...\",\"example\":\"\"}]}]}。" +
-            "chinese 用简体中文；多义项写入 senses（pos/meaning/example）；无多义时可省略 senses；跳过无法识别的行。";
+        return "你是英语单词卡与词汇关系整理助手。把用户给出的词表、笔记或词汇关系文本整理为复习卡片，若内容包含多个类别/主题或词与词的关系（如扩/派生、近义、同根、反义、形近），同时标注每个单词的所属类别（category）并输出结构化关系图。"+JSON_ONLY+
+            "格式：{\"title\":\"可选词组名称\",\"words\":[{\"english\":\"...\",\"chinese\":\"...\",\"example\":\"...\",\"category\":\"所属类别/主题名（如“优秀的”相关），无明确分类留空\",\"senses\":[{\"pos\":\"n.\",\"meaning\":\"...\",\"example\":\"\"}]}],\"groups\":[{\"name\":\"主题名\",\"kind\":\"meaning\",\"roots\":[\"核心分支词\"],\"members\":[\"该主题全部词\"]}],\"links\":[{\"from\":\"父词或词A\",\"to\":\"扩展词或词B\",\"kind\":\"derive|meaning|root|antonym|form\",\"note\":\"扩/近义/同根/反义/词形\"}]}。" +
+            "chinese 用简体中文；多义项写入 senses；同一份内容包含多个词群/类别时给每个词填入对应的 category；没有明显关系结构时 groups 和 links 返回空数组 []；跳过无法识别的行。";
     }
-    static String userImport(String raw){return "请整理以下内容为单词卡：\n"+raw;}
+    static String userImport(String raw){return "请整理以下内容为单词卡（如包含分类或词汇关系结构也一并提取）：\n"+raw;}
 
     static String systemPhotoImport(){
-        return "你是英语教材识图助手。识别图片中的英文单词及中文释义，整理为复习卡片。"+JSON_ONLY+
-            "格式：{\"words\":[{\"english\":\"...\",\"chinese\":\"...\",\"example\":\"...\",\"senses\":[{\"pos\":\"n.\",\"meaning\":\"...\",\"example\":\"\"}]}]}。" +
-            "只提取词汇条目；忽略页眉页脚；多义项写入 senses；没有则空字符串。";
+        return "你是英语教材与词汇关系识图助手。仔细识别图片中所有英文单词、中文释义、每个词所属的主题类别，以及教材中的思维导图/词汇关系图（如中心主题、分支连线和关系标注“扩”“近义”“同根”“反义”“形近”等）。"+JSON_ONLY+
+            "格式：{\"title\":\"建议的词组名称\",\"words\":[{\"english\":\"...\",\"chinese\":\"...\",\"example\":\"...\",\"category\":\"所属类别/主题名（如“优秀的”相关），无明确分类留空\",\"senses\":[{\"pos\":\"n.\",\"meaning\":\"...\",\"example\":\"\"}]}],\"groups\":[{\"name\":\"关系图中心主题名\",\"kind\":\"meaning\",\"roots\":[\"直接连在中心主题上的核心词\"],\"members\":[\"关系图里的全部英文词\"]}],\"links\":[{\"from\":\"上游词\",\"to\":\"下游/关联词\",\"kind\":\"derive|meaning|root|antonym|form\",\"note\":\"图中标注如扩、近义、同根、反义\"}]}。" +
+            "重要规则：1）图里只印了英文、未在旁边印中文的词，也必须放入 words 并补全简明准确的简体中文释义；2）图片包含多个主题/词群时，在每个单词的 category 中准确填写其所属类别名，并分别为每个主题输出一个 group；3）准确还原图中的层级连线，kind 取 derive（扩/派生）、meaning（近义）、root（同根）、antonym（反义）、form（形近）；4）忽略页码页眉；没有关系图时 groups 和 links 返回 []。";
     }
-    static String userPhotoImport(){return "请识别这张单词表/教材照片中的单词卡。";}
-    static String userPhotoImportMany(int count){return "请识别这 "+count+" 张单词表/教材照片中的全部单词卡，合并去重后输出。";}
+    static String userPhotoImport(){return "请识别这张教材/词汇关系图照片中的全部单词卡、类别归属和词汇关系结构。";}
+    static String userPhotoImportMany(int count){return "请识别这 "+count+" 张教材/词汇关系图照片中的全部单词卡、类别归属和词汇关系结构，合并去重后输出。";}
 
     static String systemExample(){
         return "你是英语例句助手。根据英文单词与中文释义生成一条自然、难度适中的例句。"+JSON_ONLY+
@@ -48,11 +48,20 @@ final class AiPrompts {
 
     static String systemRelations(){
         return "你是英语词汇关系助手。只从用户给出的已有单词里建议关联，不要发明词表之外的词。"+JSON_ONLY+
-            "格式：{\"links\":[{\"english\":\"已有单词原文\",\"kind\":\"meaning或form\",\"note\":\"不超过20字的中文说明\"}]}。"+
-            "meaning 表示语义相近，form 表示词形、拼写或派生相近。没有合适的就返回 {\"links\":[]}。";
+            "格式：{\"links\":[{\"english\":\"已有单词原文\",\"kind\":\"meaning|derive|root|antonym|form\",\"note\":\"不超过12字的中文说明如扩、近义、同根、反义\"}]}。"+
+            "meaning=近义，derive=派生/扩展，root=同根，antonym=反义，form=形近。没有合适的就返回 {\"links\":[]}。";
     }
     static String userRelations(String english,String chinese,String catalog){
-        return "当前单词："+english+"\n释义："+chinese+"\n已有单词（只能从这里选）：\n"+catalog+"\n请挑选语义或词形上真正接近的词。";
+        return "当前单词："+english+"\n释义："+chinese+"\n已有单词（只能从这里选）：\n"+catalog+"\n请挑选真正存在近义、派生扩展、同根、反义或形近关系的词。";
+    }
+
+    static String systemOrganizeMindMap(){
+        return "你是英语词汇思维导图整理老师。把用户给出的已有词表整理成类似“词以群记”的词汇关联图，只使用词表中已有的英文词，不要编造词表之外的词。"+JSON_ONLY+
+            "格式：{\"groups\":[{\"name\":\"中心主题名（简短中文如“优秀的”相关）\",\"kind\":\"meaning\",\"roots\":[\"核心分支词\"],\"members\":[\"该主题全部词\"]}],\"links\":[{\"from\":\"核心词或上游词\",\"to\":\"关联词\",\"kind\":\"derive|meaning|root|antonym|form\",\"note\":\"扩/近义/同根/反义/形近\"}]}。" +
+            "尽量把有派生(derive)、同根(root)、近义(meaning)、反义(antonym)、形近(form)关系的词用连线串成清晰分支。";
+    }
+    static String userOrganizeMindMap(String title,String wordList){
+        return "词组名："+title+"\n单词列表（只能使用这里的词）：\n"+wordList+"\n请整理成结构清晰的词汇关联图。";
     }
 
     static String systemRoots(){

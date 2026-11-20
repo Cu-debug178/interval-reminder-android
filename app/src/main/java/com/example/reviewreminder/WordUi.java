@@ -61,9 +61,9 @@ final class WordUi {
     void start(String title){start(title,R.drawable.ic_arrow_left,"返回",0,null,null);}
     /** Back-arrow page with a trailing icon action (e.g. ⋯ more). */
     void start(String title,int trailingIcon,String trailingDescription,View.OnClickListener trailing){start(title,R.drawable.ic_arrow_left,"返回",trailingIcon,trailingDescription,trailing);}
-    /** Modal flow page (review, quiz): leading ✕ instead of back. */
-    void startModal(String title){start(title,R.drawable.ic_x,"关闭",0,null,null);}
-    void startModal(String title,int trailingIcon,String trailingDescription,View.OnClickListener trailing){start(title,R.drawable.ic_x,"关闭",trailingIcon,trailingDescription,trailing);}
+    /** Immersive study flow page (review, spelling, quiz, writing): no ✕ button; system back exits. */
+    void startModal(String title){start(title,0,null,0,null,null);}
+    void startModal(String title,int trailingIcon,String trailingDescription,View.OnClickListener trailing){start(title,0,null,trailingIcon,trailingDescription,trailing);}
 
     void start(String title,int leadingIcon,String leadingDescription,int trailingIcon,String trailingDescription,View.OnClickListener trailing){
         LinearLayout screen=col();screen.setBackgroundColor(Theme.BG);
@@ -118,10 +118,13 @@ final class WordUi {
     LinearLayout pageChrome(String title){return pageChrome(title,R.drawable.ic_arrow_left,"返回",0,null,null);}
     LinearLayout pageChrome(String title,int leadingIcon,String leadingDescription,int trailingIcon,String trailingDescription,View.OnClickListener trailing){
         LinearLayout header=row();header.setMinimumHeight(dp(Theme.TOP_BAR));
-        header.setPadding(dp(Theme.SPACE_4),dp(Theme.SPACE_4),dp(Theme.SPACE_4),dp(Theme.SPACE_4));
-        header.addView(iconButton(leadingIcon,leadingDescription,v->a.onBackPressed()),new LinearLayout.LayoutParams(dp(Theme.TOUCH),dp(Theme.TOUCH)));
-        barTitle=type(title,Theme.T_HEADLINE);barTitle.setSingleLine(true);barTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams heading=new LinearLayout.LayoutParams(0,-2,1);heading.leftMargin=dp(Theme.SPACE_4);
+        header.setPadding(dp(leadingIcon==0?Theme.PAGE_PAD:Theme.SPACE_4),dp(Theme.SPACE_4),dp(Theme.SPACE_4),dp(Theme.SPACE_4));
+        if(leadingIcon!=0){
+            header.addView(iconButton(leadingIcon,leadingDescription,v->a.onBackPressed()),new LinearLayout.LayoutParams(dp(Theme.TOUCH),dp(Theme.TOUCH)));
+        }
+        barTitle=type(title==null?"":title,Theme.T_HEADLINE);barTitle.setSingleLine(true);barTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams heading=new LinearLayout.LayoutParams(0,-2,1);
+        heading.leftMargin=dp(leadingIcon==0?0:Theme.SPACE_4);
         header.addView(barTitle,heading);
         if(trailingIcon!=0)header.addView(iconButton(trailingIcon,trailingDescription,trailing),new LinearLayout.LayoutParams(dp(Theme.TOUCH),dp(Theme.TOUCH)));
         else header.addView(new View(a),new LinearLayout.LayoutParams(dp(Theme.SPACE_12),1));

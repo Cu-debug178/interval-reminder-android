@@ -1,4 +1,4 @@
-# 温故 Android 0.8.1
+# 温故 Android 0.9.0
 
 [English documentation](README.en.md)
 
@@ -62,7 +62,7 @@
 
 ## 下载 APK
 
-Android APK 和 SHA-256 校验值见 [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases)，已发布版本为 0.8.0。本分支的应用版本是 0.8.1（versionCode 17），包名仍是 `com.example.reviewreminder`，可用同一签名覆盖安装。APK 使用本地签名密钥签名；请勿将它与其他来源的同包名应用混装，后续升级需使用相同签名密钥。
+Android APK 和 SHA-256 校验值见 [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases)，当前版本是 0.9.0（versionCode 18），包名仍是 `com.example.reviewreminder`，可用同一签名覆盖安装。APK 使用本地签名密钥签名；请勿将它与其他来源的同包名应用混装，后续升级需使用相同签名密钥。
 
 ## 本机构建
 

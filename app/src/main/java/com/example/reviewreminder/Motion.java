@@ -50,6 +50,16 @@ final class Motion {
         v.animate().cancel();v.animate().alpha(0).translationX(-direction*16*d).setStartDelay(0).setDuration(Theme.LEAVE_MS).setInterpolator(EASE_IN).withEndAction(next).start();
     }
 
+    /** Downward dismissal used by the immersive flashcard swipe-down "忘记" gesture. */
+    static void leaveDown(View v,Runnable next){
+        if(!enabled(v.getContext())){next.run();return;}
+        float d=v.getResources().getDisplayMetrics().density;
+        float targetY=Math.max(v.getTranslationY()+96*d,140*d);
+        v.animate().cancel();
+        v.animate().alpha(0).translationY(targetY).scaleX(.95f).scaleY(.95f)
+            .setStartDelay(0).setDuration(Theme.LEAVE_MS+40).setInterpolator(EASE_IN).withEndAction(next).start();
+    }
+
     // ViewPropertyAnimator keeps the last start delay (enter()/stagger() set one), so every later
     // animate() chain below resets it to stay immediate.
     /** Pressed state: ripple, a gentle 3% squeeze, and a haptic tick on finger down. */

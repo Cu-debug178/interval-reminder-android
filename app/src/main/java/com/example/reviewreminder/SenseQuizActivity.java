@@ -50,7 +50,7 @@ public final class SenseQuizActivity extends ScreenActivity {
         ui=new WordUi(this);
         taskId=getIntent().getLongExtra("taskId",0);
         try{
-            JSONObject task=Store.find(Store.tasks(this),taskId);
+            JSONObject task=Store.find(this,taskId);
             if(task==null)throw new Exception("任务不存在");
             words=task.getJSONArray("words");
             if(words.length()==0)throw new Exception("词组为空");
@@ -113,19 +113,18 @@ public final class SenseQuizActivity extends ScreenActivity {
     // ── Question page ─────────────────────────────────────────────────────────
 
     private void buildChrome(){
-        ui.startModal("词性义项");
-        ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_4),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_24));
+        ui.startModal("");
+        counter=ui.barTitle;
+        counter.setTextSize(Theme.CALLOUT_SIZE);
+        counter.setTypeface(Theme.MEDIUM);
+        counter.setTextColor(Theme.INK_2);
+        counter.setFontFeatureSettings("tnum");
+        ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_2),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_24));
         progress=new ProgressLine(this);
         progress.set(0,false);
         ui.body.addView(progress,WordUi.lp());
-        counter=ui.type("",Theme.T_CALLOUT);
-        counter.setTextColor(Theme.INK_2);
-        counter.setFontFeatureSettings("tnum");
-        counter.setMinHeight(ui.dp(28));
-        counter.setGravity(Gravity.CENTER_VERTICAL);
-        ui.body.addView(counter,ui.lpMargin(Theme.SPACE_12,0));
         stage=new FrameLayout(this);
-        ui.body.addView(stage,ui.lpMargin(Theme.SPACE_16,0));
+        ui.body.addView(stage,ui.lpMargin(Theme.SPACE_20,0));
         chrome=true;
         Notice.setBottomOffset(this,Theme.BUTTON_HEIGHT+Theme.SPACE_24);
     }
@@ -150,28 +149,20 @@ public final class SenseQuizActivity extends ScreenActivity {
 
         LinearLayout card=ui.col();
         card.setGravity(Gravity.CENTER);
-        card.setMinimumHeight(ui.dp(168));
+        card.setMinimumHeight(ui.dp(156));
         card.setPadding(ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24));
         card.setBackground(Theme.shape(this,Theme.SURFACE,24));
-        TextView overline=ui.type("英文单词",Theme.T_OVERLINE);
-        overline.setGravity(Gravity.CENTER);
-        card.addView(overline,WordUi.lp());
         String headword=word.optString("english");
         TextView english=new TextView(this);
         english.setText(headword);
         english.setGravity(Gravity.CENTER);
         english.setTypeface(Theme.SERIF);
         english.setTextColor(Theme.INK);
-        english.setTextSize(headword.length()>22?26:headword.length()>13?30:34);
+        english.setTextSize(headword.length()>22?26:headword.length()>13?30:36);
         english.setLetterSpacing(-0.01f);
         english.setLineSpacing(0,1.1f);
-        card.addView(english,ui.lpMargin(Theme.SPACE_16,Theme.SPACE_8));
-        page.addView(card,WordUi.lp());
-
-        TextView prompt=ui.type("选出正确的词性 / 释义",Theme.T_CALLOUT);
-        prompt.setTypeface(Theme.MEDIUM);
-        prompt.setPadding(ui.dp(Theme.SPACE_4),0,0,0);
-        page.addView(prompt,ui.lpMargin(Theme.SPACE_24,Theme.SPACE_12));
+        card.addView(english,WordUi.lp());
+        page.addView(card,ui.lpMargin(0,Theme.SPACE_20));
 
         optionRows.clear();
         optionCorrect.clear();
@@ -228,28 +219,22 @@ public final class SenseQuizActivity extends ScreenActivity {
         if(answered)return;
         answered=true;
         try{
-            JSONArray tasks=Store.tasks(this);
-            JSONObject task=Store.find(tasks,taskId);
+            JSONObject task=Store.find(this,taskId);
             if(task==null)throw new Exception("任务不存在");
             JSONArray savedWords=task.getJSONArray("words");
             if(isCorrect){
                 JSONObject saved=new JSONObject(savedWords.getJSONObject(wordIndex).toString());
                 Senses.rememberSense(saved,senseIndex>=0?senseIndex:correctSense);
-                savedWords.put(wordIndex,saved);
-                task.put("words",savedWords);
-                Store.save(this,tasks);
+                Store.updateCard(this,taskId,wordIndex,saved);
                 words.put(wordIndex,saved);
                 correct++;
             }else{
                 WrongBook.record(this,taskId,wordIndex,Math.max(1,task.optInt("stage")+1),savedWords,"sense:"+System.currentTimeMillis()+":"+wordIndex+":"+correctSense);
-                tasks=Store.tasks(this);
-                task=Store.find(tasks,taskId);
+                task=Store.find(this,taskId);
                 savedWords=task.getJSONArray("words");
                 JSONObject saved=new JSONObject(savedWords.getJSONObject(wordIndex).toString());
                 Senses.forgetSense(saved,correctSense);
-                savedWords.put(wordIndex,saved);
-                task.put("words",savedWords);
-                Store.save(this,tasks);
+                Store.updateCard(this,taskId,wordIndex,saved);
                 words.put(wordIndex,saved);
                 wrong++;
             }

@@ -26,12 +26,13 @@ import java.util.concurrent.Future;
  *    problem opens the same editor for just that card and returns to the confirmation.
  */
 public final class WordEditorActivity extends ScreenActivity {
+    private static final int REQUEST_DRAW=71,REQUEST_CONN_IMAGE=72;
     private WordUi ui;
     private JSONObject document;
     private JSONArray words;
     private int index;
     private long taskId;
-    private EditText english,chinese,example,title;
+    private EditText english,chinese,category,example,title;
     private boolean committed,changing,quickReview,editingIssue;
     private int direction;
     private Future<?> pending;
@@ -51,7 +52,7 @@ public final class WordEditorActivity extends ScreenActivity {
         index=state==null?0:state.getInt("index");
         editingIssue=state!=null&&state.getBoolean("editingIssue");
         try{
-            document=taskId==0?Words.draft(this):Store.find(Store.tasks(this),taskId);
+            document=taskId==0?Words.draft(this):Store.find(this,taskId);
             if(document==null)throw new Exception("任务已不存在");
             words=document.optJSONArray("words");
             if(words==null)words=new JSONArray();
@@ -107,6 +108,7 @@ public final class WordEditorActivity extends ScreenActivity {
             TextView helper=ui.type(source.isEmpty()?"名称会显示在主页和复习提醒里":source,Theme.T_CAPTION);
             helper.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),0);
             body.addView(helper,WordUi.lp());
+            addDraftMindMapBanner(body);
             ui.gap(body,Theme.SPACE_24);
         }
 
@@ -132,6 +134,30 @@ public final class WordEditorActivity extends ScreenActivity {
         TextView sense=ui.type(senseLabel.isEmpty()?"义项将在保存后自动拆分":"义项："+senseLabel,Theme.T_CAPTION);
         sense.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),0);
         card.addView(sense,WordUi.lp());
+        ui.gap(card,Theme.SPACE_20);
+
+        labelRow(card,"所属类别","可留空",null);
+        category=cardInput(card,word.optString("category"),1,"例如：“优秀的”相关、人物与政治");
+        category.setSingleLine(true);
+        java.util.LinkedHashSet<String> cats=existingCategories();
+        if(!cats.isEmpty()){
+            LinearLayout catRow=ui.row();
+            for(String existing:cats){
+                TextView chip=ui.chip(existing,Theme.PRIMARY_SOFT,Theme.PRIMARY);
+                chip.setPadding(ui.dp(10),ui.dp(5),ui.dp(10),ui.dp(5));
+                chip.setClickable(true);chip.setFocusable(true);
+                Theme.applyRipple(chip,chip.getBackground(),Theme.RIPPLE_ACCENT);
+                Motion.press(chip,.95f);
+                chip.setOnClickListener(v->{category.setText(existing);category.setSelection(existing.length());Feedback.tick(v);});
+                LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,-2);
+                if(catRow.getChildCount()>0)cp.leftMargin=ui.dp(6);
+                catRow.addView(chip,cp);
+            }
+            HorizontalScrollView hsv=new HorizontalScrollView(this);
+            hsv.setHorizontalScrollBarEnabled(false);
+            hsv.addView(catRow);
+            card.addView(hsv,ui.lpMargin(Theme.SPACE_8,0));
+        }
         ui.gap(card,Theme.SPACE_20);
 
         aiButton=ui.textButton(aiBusy?"正在生成…":"AI 生成例句",v->aiExample());
@@ -221,6 +247,7 @@ public final class WordEditorActivity extends ScreenActivity {
         body.addView(counterRow,WordUi.lp());
         ui.gap(body,Theme.SPACE_8);
         body.addView(progress(),WordUi.lp());
+        addDraftMindMapBanner(body);
         ui.gap(body,Theme.SPACE_20);
 
         JSONObject loaded=words.optJSONObject(index);
@@ -229,6 +256,14 @@ public final class WordEditorActivity extends ScreenActivity {
         card.setGravity(Gravity.CENTER);
         card.setMinimumHeight(ui.dp(280));
         card.setPadding(ui.dp(24),ui.dp(40),ui.dp(24),ui.dp(40));
+
+        String catText=word.optString("category","").trim();
+        if(!catText.isEmpty()){
+            TextView catChip=ui.chip(catText,Theme.PRIMARY_SOFT,Theme.PRIMARY);
+            LinearLayout.LayoutParams clp=new LinearLayout.LayoutParams(-2,-2);
+            clp.bottomMargin=ui.dp(Theme.SPACE_16);
+            card.addView(catChip,clp);
+        }
 
         String en=word.optString("english","");
         TextView englishCard=ui.type(en.trim().isEmpty()?"（未填写英文）":en,Theme.T_DISPLAY);
@@ -485,11 +520,7 @@ public final class WordEditorActivity extends ScreenActivity {
                             word.put("senses",next).put("chinese",Senses.labelJoin(next));
                             if(chinese!=null)chinese.setText(word.optString("chinese"));
                             if(taskId==0)Words.writeDraft(this,document);
-                            else{
-                                JSONArray all=Store.tasks(this);
-                                JSONObject current=Store.find(all,taskId);
-                                if(current!=null){current.put("words",words);Store.save(this,all);}
-                            }
+                            else Store.updateCard(this,taskId,index,word);
                             show();
                             ui.toast("义项已更新");
                         }catch(Exception e){ui.error(e.getMessage());}
@@ -517,11 +548,7 @@ public final class WordEditorActivity extends ScreenActivity {
                 try{
                     word.put("example",value);
                     if(taskId==0)Words.writeDraft(WordEditorActivity.this,document);
-                    else{
-                        JSONArray all=Store.tasks(WordEditorActivity.this);
-                        JSONObject current=Store.find(all,taskId);
-                        if(current!=null){current.put("words",words);Store.save(WordEditorActivity.this,all);}
-                    }
+                    else Store.updateCard(WordEditorActivity.this,taskId,index,word);
                     ui.toast("例句已填入，可继续修改");
                 }catch(Exception e){ui.error(e.getMessage());}
             }
@@ -597,36 +624,102 @@ public final class WordEditorActivity extends ScreenActivity {
         sheet.show();
     }
 
+    private void addDraftMindMapBanner(LinearLayout parent){
+        if(taskId!=0||document==null)return;
+        JSONArray dg=document.optJSONArray("draftGroups");
+        JSONArray dl=document.optJSONArray("draftLinks");
+        int g=dg==null?0:dg.length(),l=dl==null?0:dl.length();
+        if(g==0&&l==0)return;
+        String label="已随图识别词汇关系："+(g>0?g+" 组 · ":"")+l+" 条连线 · 预览导图";
+        parent.addView(ui.banner(R.drawable.ic_layers,label,false,v->previewDraftMindMap()),ui.lpMargin(Theme.SPACE_12,0));
+    }
+
+    private void previewDraftMindMap(){
+        if(!save(true))return;
+        try{
+            JSONObject temp=WordGraph.empty();
+            JSONArray catalog=Words.mergeCatalog(WordRelations.catalog(this),words);
+            WordGraph.applyImportedRelations(temp,catalog,document.optJSONArray("draftGroups"),document.optJSONArray("draftLinks"));
+            Motion.open(this,new Intent(this,RelationActivity.class)
+                .putExtra("draftPreview",true)
+                .putExtra("previewTitle",document.optString("title","词汇关系预览"))
+                .putExtra("previewGraph",temp.toString())
+                .putExtra("draftWords",words.toString()));
+        }catch(Exception e){ui.error("无法预览词汇关系："+e.getMessage());}
+    }
+
     private void relationBlock(LinearLayout card,JSONObject word){
         ui.gap(card,Theme.SPACE_16);
-        labelRow(card,"相关词","近义、词形与归纳",null);
-        // Migrated cards keep their original JSON, which often has no wordId. The id review
-        // already uses is the stable hash, so the count has to follow that and not the missing field.
+        labelRow(card,"词汇关系","近义、扩、同根、反义与归纳",null);
         String id=Words.stableId(word);
         int count=id.isEmpty()?0:WordRelations.countFor(this,id);
-        TextView summary=ui.type(count==0?"还没有关联。保存后可与其他单词相连，复习揭晓时会显示。":"已有 "+count+" 个相关词，复习揭晓后会出现。",Theme.T_CAPTION);
+        TextView summary=ui.type(count==0?"还没有关联。可连上近义、派生(扩)或同根词，复习揭晓时会显示。":"已有 "+count+" 个相关词，复习揭晓后会出现。",Theme.T_CAPTION);
         summary.setTextColor(Theme.INK_3);
         card.addView(summary,WordUi.lp());
         LinearLayout actions=ui.row();
-        actions.addView(ui.quietPill(count==0?"添加关联":"编辑关系",R.drawable.ic_layers,v->openRelations(word)),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
+        actions.addView(ui.quietPill(count==0?"添加相关词":"查看词汇关系",R.drawable.ic_layers,v->openRelations(word)),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
         card.addView(actions,ui.lpMargin(Theme.SPACE_12,0));
-        legacyImage(card,word);
+        connectionImageBlock(card,word);
     }
-    /** Old attached pictures stay viewable. They are not the relation graph. */
-    private void legacyImage(LinearLayout card,JSONObject word){
+
+    /** Optional hand-drawn sketch or scene image attached to this card (PRD PL-02). */
+    private void connectionImageBlock(LinearLayout card,JSONObject word){
+        ui.gap(card,Theme.SPACE_16);
+        labelRow(card,"附带记忆图","可选：导入图片或手绘记忆线索",null);
         String path=word.optString("connectionImage");
-        if(path.isEmpty())return;
-        boolean present=ConnectionImages.exists(this,path);
-        TextView note=ui.type(present?"这张卡还留着一张旧图片，它不参与词汇关系。":"原来附带的图片已经找不到了。",Theme.T_CAPTION);
-        note.setTextColor(present?Theme.INK_3:Theme.WARN);
-        card.addView(note,ui.lpMargin(Theme.SPACE_12,0));
-        if(!present)return;
+        boolean present=!path.isEmpty()&&ConnectionImages.exists(this,path);
+        if(!path.isEmpty()&&!present){
+            TextView warn=ui.type("原来附带的图片已丢失，可以重新导入或手绘。",Theme.T_CAPTION);
+            warn.setTextColor(Theme.WARN);
+            card.addView(warn,ui.lpMargin(Theme.SPACE_4,0));
+        }
         LinearLayout actions=ui.row();
-        actions.addView(ui.quietPill("查看图片",R.drawable.ic_images,v->openConnection(word)),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
-        LinearLayout.LayoutParams delete=new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL));
-        delete.leftMargin=ui.dp(Theme.SPACE_8);
-        actions.addView(ui.quietPill("删除图片",R.drawable.ic_trash_2,v->deleteConnection(word)),delete);
+        if(present){
+            actions.addView(ui.quietPill("查看图片",R.drawable.ic_images,v->openConnection(word)),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
+            LinearLayout.LayoutParams delLp=new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL));
+            delLp.leftMargin=ui.dp(Theme.SPACE_8);
+            actions.addView(ui.quietPill("删除",R.drawable.ic_trash_2,v->deleteConnection(word)),delLp);
+        }else{
+            actions.addView(ui.quietPill("导入图片",R.drawable.ic_image_plus,v->pickConnectionImage()),new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL)));
+            LinearLayout.LayoutParams drawLp=new LinearLayout.LayoutParams(-2,ui.dp(Theme.BUTTON_SMALL));
+            drawLp.leftMargin=ui.dp(Theme.SPACE_8);
+            actions.addView(ui.quietPill("手绘简图",R.drawable.ic_pen_line,v->openDrawing()),drawLp);
+        }
         card.addView(actions,ui.lpMargin(Theme.SPACE_8,0));
+    }
+
+    private void pickConnectionImage(){
+        if(!save(true))return;
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
+        try{startActivityForResult(i,REQUEST_CONN_IMAGE);}catch(Exception e){ui.error("没有可用的图片选择器");}
+    }
+
+    private void openDrawing(){
+        if(!save(true))return;
+        startActivityForResult(new Intent(this,DrawingActivity.class),REQUEST_DRAW);
+    }
+
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK||data==null)return;
+        try{
+            JSONObject word=words.optJSONObject(index);
+            if(word==null)return;
+            String newPath=null;
+            if(request==REQUEST_DRAW){
+                newPath=data.getStringExtra("path");
+            }else if(request==REQUEST_CONN_IMAGE&&data.getData()!=null){
+                newPath=ConnectionImages.importUri(this,data.getData());
+            }
+            if(newPath!=null&&!newPath.isEmpty()){
+                String old=word.optString("connectionImage");
+                if(!old.isEmpty()&&!old.equals(newPath))ConnectionImages.delete(this,old);
+                word.put("connectionImage",newPath);
+                persistWords();
+                show();
+                ui.toast("记忆图已保存");
+            }
+        }catch(Exception e){ui.error("图片保存失败："+e.getMessage());}
     }
     private void openRelations(JSONObject word){
         if(english!=null){
@@ -657,15 +750,26 @@ public final class WordEditorActivity extends ScreenActivity {
         document.put("words",words);
         if(taskId==0)Words.writeDraft(this,document);
         else{
-            JSONArray all=Store.tasks(this);
-            JSONObject current=Store.find(all,taskId);
+            JSONObject current=Store.find(this,taskId);
             if(current==null)throw new Exception("任务已删除");
             current.put("words",words);
-            Store.save(this,all);
+            Store.saveTask(this,current);
         }
     }
 
-    private void clearFields(){english=null;chinese=null;example=null;title=null;}
+    private java.util.LinkedHashSet<String> existingCategories(){
+        java.util.LinkedHashSet<String> out=new java.util.LinkedHashSet<>();
+        if(words!=null){
+            for(int i=0;i<words.length();i++){
+                JSONObject w=words.optJSONObject(i);
+                String c=w==null?"":w.optString("category","").trim();
+                if(!c.isEmpty())out.add(c);
+            }
+        }
+        return out;
+    }
+
+    private void clearFields(){english=null;chinese=null;category=null;example=null;title=null;}
 
     private boolean save(boolean report){
         if(document==null||english==null||committed)return true;
@@ -678,18 +782,20 @@ public final class WordEditorActivity extends ScreenActivity {
             Words.stableId(word);
             String nextChinese=chinese.getText().toString().trim();
             String prevChinese=word.optString("chinese","");
-            word.put("english",english.getText().toString().trim()).put("chinese",nextChinese).put("example",example.getText().toString().trim());
+            word.put("english",english.getText().toString().trim())
+                .put("chinese",nextChinese)
+                .put("category",category==null?word.optString("category","").trim():category.getText().toString().trim())
+                .put("example",example.getText().toString().trim());
             if(!nextChinese.equals(prevChinese)||word.optJSONArray("senses")==null||word.optJSONArray("senses").length()==0)word.put("senses",Senses.migrate(word));
             else Senses.ensure(word);
             if(title!=null)document.put("title",title.getText().toString().trim());
             document.put("words",words);
             if(taskId==0)Words.writeDraft(this,document);
             else{
-                JSONArray all=Store.tasks(this);
-                JSONObject current=Store.find(all,taskId);
+                JSONObject current=Store.find(this,taskId);
                 if(current==null)throw new Exception("任务已删除");
                 current.put("words",words);
-                Store.save(this,all);
+                Store.saveTask(this,current);
             }
             return true;
         }catch(Exception e){
@@ -743,18 +849,33 @@ public final class WordEditorActivity extends ScreenActivity {
             List<Long> plan=IntervalPlan.active(Store.prefs(this).getString("intervals",Store.DEFAULT_INTERVALS),Store.prefs(this).getBoolean("optional",false),Store.prefs(this).getString("extraIntervals",""));
             JSONArray intervals=new JSONArray();
             for(long n:plan)intervals.put(n);
+            JSONObject cleanDoc=new JSONObject(document.toString());
+            final JSONArray draftGroups=cleanDoc.optJSONArray("draftGroups");
+            final JSONArray draftLinks=cleanDoc.optJSONArray("draftLinks");
+            cleanDoc.remove("draftGroups");
+            cleanDoc.remove("draftLinks");
+            for(int i=0;i<words.length();i++)Words.stableId(words.getJSONObject(i));
+            cleanDoc.put("words",words);
             long now=System.currentTimeMillis(),id=Store.prefs(this).getLong("nextId",0)+1;
             String windows=ReminderWindows.active(this);
-            JSONObject t=new JSONObject(document.toString()).put("id",id).put("created",now).put("stage",0).put("intervals",intervals).put("windows",windows).put("history",new JSONArray()).put("snoozes",0).put("done",false).put("due",Schedule.due(now,plan.get(0),Store.windows(windows)));
-            JSONArray all=Store.tasks(this);
-            all.put(t);
-            Store.save(this,all);
-            Store.prefs(this).edit().putLong("nextId",id).apply();
+            final JSONObject t=cleanDoc.put("id",id).put("created",now).put("stage",0).put("intervals",intervals).put("windows",windows).put("history",new JSONArray()).put("snoozes",0).put("done",false).put("due",Schedule.due(now,plan.get(0),Store.windows(windows)));
+            final int[][] relCounts=new int[1][];
+            LocalStore.inTransaction(this,()->{
+                LocalStore.writeTaskLocked(LocalStore.database(),t,-1);
+                Store.prefs(this).edit().putLong("nextId",id).apply();
+                if((draftGroups!=null&&draftGroups.length()>0)||(draftLinks!=null&&draftLinks.length()>0)){
+                    relCounts[0]=WordRelations.applyImported(this,words,draftGroups,draftLinks);
+                }
+            });
             boolean exact=Alarms.schedule(this,t);
             committed=true;
             Words.clearDraft(this);
             interaction.confirm(getWindow().getDecorView());
-            String message="已保存 "+words.length()+" 张单词卡"+(exact?"":"；系统可能延迟提醒");
+            String relMsg="";
+            if(relCounts[0]!=null&&(relCounts[0][0]>0||relCounts[0][1]>0)){
+                relMsg=" · 已写入 "+relCounts[0][0]+" 组关联图（"+relCounts[0][1]+" 条连线）";
+            }
+            String message="已保存 "+words.length()+" 张单词卡"+relMsg+(exact?"":"；系统可能延迟提醒");
             Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
             startActivity(home);
             finish();
