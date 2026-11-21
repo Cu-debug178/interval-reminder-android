@@ -1,7 +1,7 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.reviewreminder.qa" android:versionCode="1" android:versionName="0.6.0-qa">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.reviewreminder.qa" android:versionCode="1" android:versionName="0.9.0-qa">
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28"/>
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <application android:label="间隔提醒测试" android:usesCleartextTraffic="true" android:hardwareAccelerated="false" android:icon="@drawable/ic_app" android:theme="@style/AppTheme">
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <application android:label="间隔提醒测试" android:hardwareAccelerated="false" android:icon="@drawable/ic_app" android:theme="@style/AppTheme">
         <activity android:name="com.example.reviewreminder.QaLauncher" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
@@ -12,8 +12,18 @@
         <activity android:name="com.example.reviewreminder.SpellingActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.example.reviewreminder.ExampleActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.example.reviewreminder.WrongBookActivity" android:exported="false"/>
-        <activity android:name="com.example.reviewreminder.CreateActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.CreateActivity" android:exported="false"/>
         <activity android:name="com.example.reviewreminder.SenseQuizActivity" android:exported="false"/>
+        <activity android:name="com.example.reviewreminder.VoiceSettingsActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.CardStyleActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.PracticeSetupActivity" android:exported="false"/>
+        <activity android:name="com.example.reviewreminder.PlansActivity" android:exported="false"/>
+        <activity android:name="com.example.reviewreminder.PlanDetailActivity" android:exported="false"/>
+        <activity android:name="com.example.reviewreminder.TranslationActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.ConnectionImageActivity" android:exported="false"/>
+        <activity android:name="com.example.reviewreminder.RelationActivity" android:exported="false" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.DrawingActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.example.reviewreminder.BackupActivity" android:exported="false"/>
         <provider android:name="com.example.reviewreminder.PhotoProvider" android:authorities="com.example.reviewreminder.qa.photos" android:exported="false" android:grantUriPermissions="true"/>
         <receiver android:name="com.example.reviewreminder.ReminderReceiver" android:exported="false"/>
     </application>

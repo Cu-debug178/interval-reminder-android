@@ -74,7 +74,9 @@ final class Motion {
                     view.animate().scaleX(scale).scaleY(scale).setStartDelay(0).setDuration(90).setInterpolator(EASE).start();
             }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
                 Feedback.releasePress(view);
-                view.animate().scaleX(1).scaleY(1).setStartDelay(0).setDuration(enabled(view.getContext())?Theme.PRESS_MS+60:0).setInterpolator(EASE_OUT).start();
+                if(enabled(view.getContext()))
+                    view.animate().scaleX(1).scaleY(1).setStartDelay(0).setDuration(Theme.PRESS_MS+60).setInterpolator(EASE_OUT).start();
+                else{view.setScaleX(1);view.setScaleY(1);}
             }
             return false;
         });

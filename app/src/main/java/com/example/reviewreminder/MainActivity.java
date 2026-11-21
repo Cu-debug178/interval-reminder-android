@@ -97,7 +97,7 @@ public class MainActivity extends ScreenActivity {
     private Sheet setupSheet;
     private LinearLayout setupContainer;
     private ProgressLine setupProgress;
-    private TextView setupStepLabel,setupError;
+    private TextView setupStepLabel,setupError,cardStyleSummary;
     private int setupStep;
     private String setupWindows="";
     private boolean setupRespectWindows;
@@ -146,6 +146,7 @@ public class MainActivity extends ScreenActivity {
         if(permissionExactStatus!=null)permissionExactStatus.setText(exactStatus());
         if(settingsNotificationStatus!=null)settingsNotificationStatus.setText(notificationShort());
         if(settingsExactStatus!=null)settingsExactStatus.setText(exactShort());
+        if(cardStyleSummary!=null)cardStyleSummary.setText(CardStyleStore.load(this).summary());
         // The first resume follows onCreate's render; re-rendering would only cancel the entrance.
         if(!resumedOnce){resumedOnce=true;return;}
         // Never rebuild a settings category with edits in progress; the permission page has none.
@@ -299,6 +300,7 @@ public class MainActivity extends ScreenActivity {
         settingsDraft=null;
         settingsDraftStart=null;
         settingsNotificationStatus=null;
+        cardStyleSummary=null;
         settingsExactStatus=null;
         completedBody=null;
         calendarGrid=null;
@@ -1557,7 +1559,9 @@ public class MainActivity extends ScreenActivity {
         Segmented mode=segmentBlock(cards,"卡片正面",new String[]{"先英文","先中文","随机"},Math.max(0,Math.min(2,prefs.getInt("reviewMode",0))));
         Switch shuffle=ui.switchRow(cards,"打乱单词顺序",null,prefs.getBoolean("shuffleWords",false));
         Switch motion=ui.switchRow(cards,"界面动态效果","关闭后页面与列表的过渡立即呈现",prefs.getBoolean("motion",true));
-        ui.item(cards,0,"复习卡片外观",CardStyleStore.load(this).summary(),null,true,v->Motion.open(this,new Intent(this,CardStyleActivity.class)));
+        LinearLayout cardStyleRow=ui.item(cards,0,"复习卡片外观",CardStyleStore.load(this).summary(),null,true,v->Motion.open(this,new Intent(this,CardStyleActivity.class)));
+        LinearLayout cardStyleCopy=(LinearLayout)cardStyleRow.getChildAt(0);
+        cardStyleSummary=cardStyleCopy.getChildCount()>1?(TextView)cardStyleCopy.getChildAt(1):null;
         content.addView(cards,WordUi.lp());
         ui.note(content,"词性/义项练习可在任务详情里单独开始：正面英文，从多个词性释义中选择。");
 
