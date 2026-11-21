@@ -33,7 +33,7 @@ import java.util.Set;
  */
 final class LocalStore {
     static final Object LOCK=new Object();
-    private static final int DB_VERSION=3;
+    private static final int DB_VERSION=4;
     private static final String MIGRATED="legacy_prefs_migrated";
     private static final String V2_READY="normalized_v2_ready";
     private static final String SPELLING_ACTIVE_PREFIX="spellingActive:";
@@ -660,7 +660,11 @@ final class LocalStore {
         cv.put("id",p.optString("id"));
         cv.put("name",p.optString("name",""));
         cv.put("path",p.optString("path",""));
-        cv.put("mime",p.optString("mime","audio/mpeg"));
+        cv.put("mime",p.optString("mime",""));
+        cv.put("kind",p.optString("kind",VoiceStore.KIND_CLONE));
+        cv.put("description",p.optString("description",""));
+        cv.put("consented_at",p.optLong("consentedAt",0L));
+        cv.put("consent_version",p.optInt("consentVersion",0));
         cv.put("version",p.optLong("version",0));
         cv.put("created",p.optLong("created",0));
         db.insertWithOnConflict("voice_profile",null,cv,SQLiteDatabase.CONFLICT_REPLACE);
@@ -888,6 +892,12 @@ final class LocalStore {
                 addColumnIfMissing(db,"card","category","TEXT NOT NULL DEFAULT ''");
                 createIndices(db);
             }
+            if(oldVersion<4){
+                addColumnIfMissing(db,"voice_profile","kind","TEXT NOT NULL DEFAULT 'clone'");
+                addColumnIfMissing(db,"voice_profile","description","TEXT NOT NULL DEFAULT ''");
+                addColumnIfMissing(db,"voice_profile","consented_at","INTEGER NOT NULL DEFAULT 0");
+                addColumnIfMissing(db,"voice_profile","consent_version","INTEGER NOT NULL DEFAULT 0");
+            }
         }
 
         private static void createCoreTables(SQLiteDatabase db){
@@ -929,7 +939,10 @@ final class LocalStore {
                 +"targets_json TEXT NOT NULL, user_answer TEXT NOT NULL, self_rating TEXT NOT NULL, note TEXT NOT NULL, "
                 +"ai_feedback TEXT NOT NULL, reference_viewed INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
             db.execSQL("CREATE TABLE IF NOT EXISTS voice_profile ("
-                +"id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, mime TEXT NOT NULL, version INTEGER NOT NULL, created INTEGER NOT NULL)");
+                +"id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, mime TEXT NOT NULL, "
+                +"kind TEXT NOT NULL DEFAULT 'clone', description TEXT NOT NULL DEFAULT '', "
+                +"consented_at INTEGER NOT NULL DEFAULT 0, consent_version INTEGER NOT NULL DEFAULT 0, "
+                +"version INTEGER NOT NULL, created INTEGER NOT NULL)");
             db.execSQL("CREATE TABLE IF NOT EXISTS ai_mistake ("
                 +"id INTEGER PRIMARY KEY AUTOINCREMENT, english TEXT NOT NULL, sentence TEXT NOT NULL, feedback TEXT NOT NULL, at INTEGER NOT NULL)");
             db.execSQL("CREATE TABLE IF NOT EXISTS draft_store (id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL)");

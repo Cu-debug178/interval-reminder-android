@@ -77,7 +77,7 @@ final class BackupManager {
             JSONObject audio=new JSONObject();JSONArray profilesOut=out.optJSONArray("voiceProfiles");
             for(int i=0;profilesOut!=null&&i<profilesOut.length();i++){
                 JSONObject profile=profilesOut.optJSONObject(i);if(profile==null)continue;String id=profile.optString("id");
-                JSONObject original=VoiceStore.profile(c,id);if(original==null)continue;
+                JSONObject original=VoiceStore.profile(c,id);if(original==null||VoiceStore.isDesign(original))continue;
                 try{byte[] bytes=VoiceStore.sample(c,original);audio.put(id,new JSONObject().put("mime",original.optString("mime")).put("data",Base64Compat.encode(bytes)));}catch(Exception ignored){}
             }
             out.put("audio",audio);
@@ -162,10 +162,17 @@ final class BackupManager {
         try{
             for(int i=0;i<backup.voiceProfiles.length();i++){
                 JSONObject p=cleanObject(backup.voiceProfiles.getJSONObject(i));String id=p.optString("id");if(id.isEmpty()||findProfile(profiles,id)!=null)continue;
+                if(VoiceStore.isDesign(p)){
+                    if(p.optString("description","").trim().isEmpty())continue;
+                    p.put("path","").put("mime","").put("consentedAt",0L).put("consentVersion",0);
+                    profiles.put(p);result.profiles++;continue;
+                }
                 File target=voiceFile(c,id,p.optString("mime"));JSONObject audio=backup.audio.optJSONObject(id);
                 if(audio!=null){PendingFile staged=stageVoice(c,target,audio);if(staged==null)continue;pending.add(staged);p.put("path",staged.target.getAbsolutePath());}
                 else if(target!=null&&target.isFile())p.put("path",target.getAbsolutePath());
                 else continue;
+                // Require fresh voice cloning consent after restore so audio is never uploaded silently.
+                p.put("kind",VoiceStore.KIND_CLONE).put("consentedAt",0L).put("consentVersion",0);
                 profiles.put(p);result.profiles++;
             }
             for(Iterator<String> keys=backup.images.keys();keys.hasNext();){String path=keys.next();String data=backup.images.optString(path,"");if(data.isEmpty())continue;ConnectionImages.StagedFile staged=ConnectionImages.stage(c,path,data);pending.add(new PendingFile(staged.temp,staged.target));result.images++;}
