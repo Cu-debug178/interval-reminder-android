@@ -140,7 +140,20 @@ public final class NativeSmokeTest extends Instrumentation {
         Activity create=open(CreateActivity.class,0);check(find(create.getWindow().getDecorView(),"创造力造句")!=null||find(create.getWindow().getDecorView(),"提交批改")!=null,"create activity opens for sentence practice");screenshot(create,"create-360",360,760);runOnMainSync(()->create.finish());
         Activity senseQuiz=open(SenseQuizActivity.class,id);check(find(senseQuiz.getWindow().getDecorView(),"词性义项")!=null||find(senseQuiz.getWindow().getDecorView(),"选出正确")!=null,"sense quiz opens for task words");screenshot(senseQuiz,"sense-quiz-360",360,760);runOnMainSync(()->senseQuiz.finish());
         testVoiceSettings();
+        testCardStyleSettings();
         liveAiProbe();
+    }
+    private void testCardStyleSettings()throws Exception{
+        android.content.Context ctx=getTargetContext();
+        CardStyle original=CardStyleStore.load(ctx);
+        CardStyle custom=CardStyle.defaults().withGradient("pine_mist").withBottomQuote("慢一点记住，比快一点忘掉更省力。","");
+        check(CardStyleStore.save(ctx,custom),"custom card style saves cleanly");
+        check(CardStyleStore.load(ctx).equals(custom),"custom card style reloads from SQLite prefs");
+        Activity styleAct=open(CardStyleActivity.class,0);
+        check(find(styleAct.getWindow().getDecorView(),"实时预览")!=null&&find(styleAct.getWindow().getDecorView(),"卡片背景")!=null&&find(styleAct.getWindow().getDecorView(),"底部区域")!=null,"CardStyleActivity shows live preview, background and bottom controls");
+        screenshot(styleAct,"card-style-360",360,860);
+        runOnMainSync(()->styleAct.finish());
+        CardStyleStore.save(ctx,original);
     }
     private void testVoiceSettings()throws Exception{
         android.content.Context ctx=getTargetContext();
