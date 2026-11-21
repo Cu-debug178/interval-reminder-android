@@ -1594,7 +1594,7 @@ public class MainActivity extends ScreenActivity {
         ui.section(content,"朗读",null);
         LinearLayout speech=ui.group();
         Switch autoSpeak=ui.switchRow(speech,"揭晓答案时自动朗读单词和例句",null,prefs.getBoolean("autoSpeak",true));
-        ui.item(speech,0,"朗读声音与语速","系统声音、MiMo 或克隆音色",null,true,v->Motion.open(this,new Intent(this,VoiceSettingsActivity.class)));
+        ui.item(speech,0,"朗读声音与语速","系统声音、MiMo 预置、设计或克隆音色",null,true,v->Motion.open(this,new Intent(this,VoiceSettingsActivity.class)));
         content.addView(speech,WordUi.lp());
 
         ui.section(content,"交互反馈",null);
@@ -1616,16 +1616,18 @@ public class MainActivity extends ScreenActivity {
         });
         haptic.setOnCheckedChangeListener((b,on)->{if(on&&!Feedback.held())b.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);});
         Switch reminderSound=ui.switchRow(feedback,"到期通知使用声音",null,prefs.getBoolean("reminderSound",true));
+        Switch reminderVoice=ui.switchRow(feedback,"到期提醒语音播报","到点时用所选音色朗读提醒；离线或失败时自动回退系统语音",prefs.getBoolean("reminderVoiceSpeak",false));
         content.addView(feedback,WordUi.lp());
-        ui.note(content,"到期通知使用系统通知声音，仍受系统静音与勿扰设置影响。");
+        ui.note(content,"到期通知使用系统通知声音，语音播报仍受系统静音与勿扰设置影响。");
 
-        settingsDraft=()->autoSpeak.isChecked()+"|"+feedbackSound.isChecked()+"|"+haptic.isChecked()+"|"+reminderSound.isChecked();
+        settingsDraft=()->autoSpeak.isChecked()+"|"+feedbackSound.isChecked()+"|"+haptic.isChecked()+"|"+reminderSound.isChecked()+"|"+reminderVoice.isChecked();
         saveSettings=()->{
             boolean ok=prefs.edit()
                     .putBoolean("autoSpeak",autoSpeak.isChecked())
                     .putBoolean("feedbackSound",feedbackSound.isChecked())
                     .putBoolean("haptic",haptic.isChecked())
                     .putBoolean("reminderSound",reminderSound.isChecked())
+                    .putBoolean("reminderVoiceSpeak",reminderVoice.isChecked())
                     .commit();
             if(!ok){error("设置未能保存");return false;}
             Notifications.ensureChannel(this);
