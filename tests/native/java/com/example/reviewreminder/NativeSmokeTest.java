@@ -139,7 +139,24 @@ public final class NativeSmokeTest extends Instrumentation {
         Activity homeTasks=open(MainActivity.class,0);check(find(homeTasks.getWindow().getDecorView(),"待复习")!=null&&find(homeTasks.getWindow().getDecorView(),"任意复习")!=null&&find(homeTasks.getWindow().getDecorView(),"Lesson 1")!=null,"home lists task review cards with practice entry and Lesson card");screenshot(homeTasks,"home-tasks-360",360,760);runOnMainSync(()->homeTasks.finish());
         Activity create=open(CreateActivity.class,0);check(find(create.getWindow().getDecorView(),"创造力造句")!=null||find(create.getWindow().getDecorView(),"提交批改")!=null,"create activity opens for sentence practice");screenshot(create,"create-360",360,760);runOnMainSync(()->create.finish());
         Activity senseQuiz=open(SenseQuizActivity.class,id);check(find(senseQuiz.getWindow().getDecorView(),"词性义项")!=null||find(senseQuiz.getWindow().getDecorView(),"选出正确")!=null,"sense quiz opens for task words");screenshot(senseQuiz,"sense-quiz-360",360,760);runOnMainSync(()->senseQuiz.finish());
+        testVoiceSettings();
         liveAiProbe();
+    }
+    private void testVoiceSettings()throws Exception{
+        android.content.Context ctx=getTargetContext();
+        check(VoiceStore.preset("mimo_default")&&VoiceStore.preset("冰糖")&&VoiceStore.preset("Mia"),"MiMo preset voice catalog includes Chinese and English defaults");
+        JSONObject design=VoiceStore.saveDesignProfile(ctx,null,"测试设计音色","温柔清晰的年轻女声，语速平稳自然。");
+        check(VoiceStore.isDesign(design)&&VoiceStore.profilesOfKind(ctx,VoiceStore.KIND_DESIGN).length()>=1,"VoiceDesign profile persists in SQLite");
+        boolean rejectedWithoutConsent=false;
+        try{MimoTtsProtocol.buildVoiceCloneRequest("audio/wav",WavAudio.encodePcm16Mono(new byte[3200],16000),false,"hello",null,1.0f,"wav");}
+        catch(IllegalStateException expected){rejectedWithoutConsent=true;}
+        check(rejectedWithoutConsent,"VoiceClone refuses payload without consent");
+        Activity voice=open(VoiceSettingsActivity.class,0);
+        check(find(voice.getWindow().getDecorView(),"我的设计音色")!=null&&find(voice.getWindow().getDecorView(),"我的克隆音色")!=null&&find(voice.getWindow().getDecorView(),"测试连接")!=null,"VoiceSettingsActivity exposes VoiceDesign, VoiceClone, and read-only connection test");
+        check(find(voice.getWindow().getDecorView(),"录制声音")!=null&&find(voice.getWindow().getDecorView(),"导入音频")!=null,"VoiceSettingsActivity exposes both recording and audio import");
+        screenshot(voice,"voice-settings-360",360,860);
+        runOnMainSync(()->voice.finish());
+        VoiceStore.delete(ctx,design.optString("id"));
     }
     private void liveAiProbe()throws Exception{
         java.io.File external=getTargetContext().getExternalFilesDir(null);
