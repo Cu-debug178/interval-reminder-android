@@ -71,6 +71,7 @@ public final class ReviewActivity extends ScreenActivity {
     private View hairline,categoryTag,masteryRow,relationsRow;
     private TextView back,sentence;
     private boolean gesturePromptShown;
+    private CardStyle cardStyle=CardStyle.defaults();
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ public final class ReviewActivity extends ScreenActivity {
         interaction.prepare(this);
         ui=new WordUi(this);
         speech=new SpeechManager(this);
+        cardStyle=CardStyleStore.load(this);
         id=getIntent().getLongExtra("taskId",0);
         selectionId=getIntent().getStringExtra("selectionId");
         practice=getIntent().getBooleanExtra("practice",false)||selectionId!=null||(state!=null&&state.getBoolean("practice"));
@@ -135,7 +137,15 @@ public final class ReviewActivity extends ScreenActivity {
         super.onSaveInstanceState(out);
     }
 
-    @Override protected void onResume(){super.onResume();active=true;}
+    @Override protected void onResume(){
+        super.onResume();
+        active=true;
+        CardStyle latest=CardStyleStore.load(this);
+        if(!latest.equals(cardStyle)){
+            cardStyle=latest;
+            if(sessionChrome&&session!=null&&!session.ended()&&!changing)show();
+        }
+    }
 
     @Override protected void onPause(){
         active=false;
@@ -329,61 +339,86 @@ public final class ReviewActivity extends ScreenActivity {
 
     /**
      * Pure immersive paper card with zero buttons and zero permanent hint copy.
+     * Supports custom background, bottom slot, dark mode, long text, and compact/landscape/large-font layouts.
      */
     private View buildCard(JSONObject word,boolean zh){
-        LinearLayout card=ui.col();
+        boolean nightMode=CardStyleStore.isNightMode(this);
+        int screenH=getResources().getDisplayMetrics().heightPixels;
+        int screenW=getResources().getDisplayMetrics().widthPixels;
+        float fontScale=getResources().getConfiguration().fontScale;
+        boolean landscape=screenW>screenH;
+        boolean compact=landscape||screenH<ui.dp(620)||fontScale>=1.25f;
+
+        CardSurfaceView card=new CardSurfaceView(this,24);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setMinimumHeight(ui.dp(420));
-        card.setPadding(ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24),ui.dp(Theme.SPACE_24));
-        card.setBackground(Theme.shape(this,Theme.SURFACE,24));
+        int minH=Math.min(ui.dp(420),Math.max(ui.dp(compact?220:300),screenH-ui.dp(compact?148:180)));
+        card.setMinimumHeight(minH);
+        int padH=ui.dp(compact?Theme.SPACE_20:Theme.SPACE_24);
+        int padV=ui.dp(compact?Theme.SPACE_16:Theme.SPACE_24);
+        card.setPadding(padH,padV,padH,padV);
+        card.applyStyle(cardStyle,nightMode);
+        CardSurfaceView.Palette palette=card.palette();
 
         if(session.attemptsForCurrent()>0){
             TextView retryTag=ui.type("再看一次",Theme.T_OVERLINE);
+            retryTag.setTextColor(palette.inkMuted);
             retryTag.setGravity(Gravity.CENTER);
             card.addView(retryTag,WordUi.lp());
         }
 
         LinearLayout content=ui.col();
         content.setGravity(Gravity.CENTER);
-        content.setPadding(0,ui.dp(Theme.SPACE_16),0,ui.dp(Theme.SPACE_16));
+        int contentPadV=ui.dp(compact?Theme.SPACE_8:Theme.SPACE_16);
+        content.setPadding(0,contentPadV,0,contentPadV);
 
         String frontText=zh?word.optString("chinese"):word.optString("english");
         TextView front=new TextView(this);
         front.setText(frontText);
         front.setGravity(Gravity.CENTER);
-        front.setTextColor(Theme.INK);
+        front.setTextColor(palette.ink);
         if(zh){
             front.setTypeface(Theme.MEDIUM);
-            front.setTextSize(frontText.length()>18?22:26);
-            front.setLineSpacing(0,1.3f);
+            int zhSize=frontText.length()>28?18:(frontText.length()>18?21:25);
+            front.setTextSize(compact?Math.max(17,zhSize-3):zhSize);
+            front.setLineSpacing(0,1.28f);
+            front.setMaxLines(compact?4:6);
+            front.setEllipsize(android.text.TextUtils.TruncateAt.END);
         }else{
             front.setTypeface(Theme.SERIF);
-            front.setTextSize(headwordSize(frontText,40));
+            int enBase=compact?32:40;
+            front.setTextSize(headwordSize(frontText,enBase));
             front.setLetterSpacing(-0.01f);
             front.setLineSpacing(0,1.1f);
+            front.setMaxLines(3);
+            front.setEllipsize(android.text.TextUtils.TruncateAt.END);
         }
         content.addView(front,WordUi.lp());
 
         hairline=new View(this);
-        hairline.setBackgroundColor(Theme.HAIRLINE);
+        hairline.setBackgroundColor(palette.hairline);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(ui.dp(36),Math.max(1,ui.dp(1)));
-        hp.topMargin=ui.dp(Theme.SPACE_24);
-        hp.bottomMargin=ui.dp(Theme.SPACE_24);
+        hp.topMargin=ui.dp(compact?Theme.SPACE_12:Theme.SPACE_24);
+        hp.bottomMargin=ui.dp(compact?Theme.SPACE_12:Theme.SPACE_24);
         content.addView(hairline,hp);
 
         String backText=zh?word.optString("english"):word.optString("chinese","");
         back=new TextView(this);
         back.setText(backText);
         back.setGravity(Gravity.CENTER);
-        back.setTextColor(Theme.INK);
+        back.setTextColor(palette.ink);
         if(zh){
             back.setTypeface(Theme.SERIF);
-            back.setTextSize(headwordSize(backText,32));
+            back.setTextSize(headwordSize(backText,compact?26:32));
             back.setLineSpacing(0,1.1f);
+            back.setMaxLines(3);
+            back.setEllipsize(android.text.TextUtils.TruncateAt.END);
         }else{
             back.setTypeface(Theme.REGULAR);
-            back.setTextSize(21);
-            back.setLineSpacing(0,1.35f);
+            int defSize=backText.length()>40?17:(backText.length()>22?19:21);
+            back.setTextSize(compact?Math.max(15,defSize-2):defSize);
+            back.setLineSpacing(0,1.32f);
+            back.setMaxLines(compact?4:6);
+            back.setEllipsize(android.text.TextUtils.TruncateAt.END);
         }
         content.addView(back,WordUi.lp());
 
@@ -392,25 +427,27 @@ public final class ReviewActivity extends ScreenActivity {
         sentence.setText(currentExample);
         sentence.setGravity(Gravity.CENTER);
         sentence.setTypeface(Theme.SERIF_ITALIC);
-        sentence.setTextSize(15);
-        sentence.setTextColor(Theme.INK_2);
-        sentence.setLineSpacing(0,1.35f);
-        sentence.setPadding(ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8),ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8));
+        sentence.setTextSize(compact?13:15);
+        sentence.setTextColor(palette.inkSecondary);
+        sentence.setLineSpacing(0,1.32f);
+        sentence.setMaxLines(compact?3:5);
+        sentence.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        sentence.setPadding(ui.dp(Theme.SPACE_12),ui.dp(compact?Theme.SPACE_4:Theme.SPACE_8),ui.dp(Theme.SPACE_12),ui.dp(compact?Theme.SPACE_4:Theme.SPACE_8));
         sentence.setContentDescription("朗读例句："+currentExample);
         sentence.setClickable(true);
         sentence.setFocusable(true);
-        Theme.applyRipple(sentence,Theme.shape(this,Color.TRANSPARENT,Theme.RADIUS_CHIP),Theme.RIPPLE_LIGHT);
+        Theme.applyRipple(sentence,Theme.shape(this,Color.TRANSPARENT,Theme.RADIUS_CHIP),palette.ripple);
         Motion.press(sentence,.98f);
         sentence.setOnClickListener(v->{
             if(!currentExample.isEmpty()&&speech!=null)speech.speak(currentExample,"review_example");
         });
         sentence.setOnLongClickListener(v->true);
-        content.addView(sentence,ui.lpMargin(Theme.SPACE_12,0));
+        content.addView(sentence,ui.lpMargin(compact?Theme.SPACE_8:Theme.SPACE_12,0));
 
         String category=word.optString("category","").trim();
-        TextView catBadge=ui.chip(category,Theme.SUNK,Theme.INK_2);
+        TextView catBadge=ui.chip(category,palette.chipFill,palette.chipInk);
         LinearLayout.LayoutParams catLp=new LinearLayout.LayoutParams(-2,-2);
-        catLp.topMargin=ui.dp(Theme.SPACE_12);
+        catLp.topMargin=ui.dp(compact?Theme.SPACE_8:Theme.SPACE_12);
         catLp.gravity=Gravity.CENTER_HORIZONTAL;
         catBadge.setVisibility(category.isEmpty()?View.GONE:(revealed?View.VISIBLE:View.INVISIBLE));
         content.addView(catBadge,catLp);
@@ -419,12 +456,13 @@ public final class ReviewActivity extends ScreenActivity {
         int level=Mastery.level(word);
         LinearLayout mastery=ui.row();
         mastery.setGravity(Gravity.CENTER);
-        mastery.addView(new StageDots(this,5,level,false).ringNext(false));
+        mastery.addView(new StageDots(this,5,level,false).ringNext(false).color(palette.dotActive).offColor(palette.dotInactive));
         TextView masteryLabel=ui.type(Mastery.label(level),Theme.T_CAPTION);
+        masteryLabel.setTextColor(palette.inkMuted);
         LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-2,-2);
         mp.leftMargin=ui.dp(Theme.SPACE_8);
         mastery.addView(masteryLabel,mp);
-        content.addView(mastery,ui.lpMargin(Theme.SPACE_20,0));
+        content.addView(mastery,ui.lpMargin(compact?Theme.SPACE_12:Theme.SPACE_20,0));
         masteryRow=mastery;
 
         // Quiet inline relation link (no pill button chrome); tap opens interactive mind map.
@@ -433,46 +471,47 @@ public final class ReviewActivity extends ScreenActivity {
         boolean hasRelations=relationLabel!=null&&!relationLabel.isEmpty();
         LinearLayout relStrip=ui.row();
         relStrip.setGravity(Gravity.CENTER);
-        relStrip.setPadding(ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8),ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_8));
+        relStrip.setPadding(ui.dp(Theme.SPACE_12),ui.dp(compact?Theme.SPACE_6:Theme.SPACE_8),ui.dp(Theme.SPACE_12),ui.dp(compact?Theme.SPACE_6:Theme.SPACE_8));
         relStrip.setBackground(Theme.shape(this,Color.TRANSPARENT,Theme.RADIUS_CHIP));
-        ImageView relIcon=ui.icon(R.drawable.ic_layers,Theme.PRIMARY);
+        ImageView relIcon=ui.icon(R.drawable.ic_layers,palette.accent);
         LinearLayout.LayoutParams rip=new LinearLayout.LayoutParams(ui.dp(15),ui.dp(15));
         rip.rightMargin=ui.dp(Theme.SPACE_6);
         relStrip.addView(relIcon,rip);
         TextView relText=ui.type(hasRelations?relationLabel:"",Theme.T_CAPTION);
-        relText.setTextColor(Theme.PRIMARY);
+        relText.setTextColor(palette.accent);
         relText.setTypeface(Theme.MEDIUM);
         relText.setSingleLine(true);
         relText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        int maxRelWidth=Math.max(ui.dp(160),Math.min(ui.dp(420),getResources().getDisplayMetrics().widthPixels-ui.dp(148)));
+        int maxRelWidth=Math.max(ui.dp(160),Math.min(ui.dp(420),screenW-ui.dp(148)));
         relText.setMaxWidth(maxRelWidth);
         relStrip.addView(relText);
-        ImageView relArrow=ui.icon(R.drawable.ic_chevron_right,Theme.PRIMARY);
+        ImageView relArrow=ui.icon(R.drawable.ic_chevron_right,palette.accent);
         LinearLayout.LayoutParams rap=new LinearLayout.LayoutParams(ui.dp(14),ui.dp(14));
         rap.leftMargin=ui.dp(2);
         relStrip.addView(relArrow,rap);
         relStrip.setClickable(true);
         relStrip.setFocusable(true);
         relStrip.setContentDescription("查看相关词关联图："+relationLabel);
-        Theme.applyRipple(relStrip,relStrip.getBackground(),Theme.RIPPLE_ACCENT);
+        Theme.applyRipple(relStrip,relStrip.getBackground(),palette.ripple);
         Motion.press(relStrip,.97f);
         relStrip.setOnClickListener(v->openRelations(word));
         relStrip.setOnLongClickListener(v->true);
         relStrip.setVisibility(hasRelations?(revealed?View.VISIBLE:View.INVISIBLE):View.GONE);
         LinearLayout.LayoutParams relationLp=new LinearLayout.LayoutParams(-2,-2);
-        relationLp.topMargin=ui.dp(Theme.SPACE_12);
+        relationLp.topMargin=ui.dp(compact?Theme.SPACE_8:Theme.SPACE_12);
         relationLp.gravity=Gravity.CENTER_HORIZONTAL;
         content.addView(relStrip,relationLp);
         relationsRow=relStrip;
 
         card.addView(content,new LinearLayout.LayoutParams(-1,0,1));
+        CardSurfaceView.attachBottomSlot(this,card,cardStyle,palette,compact);
 
         int answerState=revealed?View.VISIBLE:View.INVISIBLE;
         hairline.setVisibility(answerState);
         back.setVisibility(answerState);
         sentence.setVisibility(currentExample.isEmpty()?View.GONE:answerState);
         masteryRow.setVisibility(answerState);
-        bindCard(card);
+        bindCard(card,palette.ripple);
         return card;
     }
 
@@ -482,11 +521,11 @@ public final class ReviewActivity extends ScreenActivity {
      *   - Swipe down marks “忘记” (with finger-follow translation, live terracotta cue & haptic)
      *   - Long-press opens word editor
      */
-    private void bindCard(View card){
+    private void bindCard(View card,int rippleColor){
         card.setClickable(true);
         card.setFocusable(true);
         card.setLongClickable(false);
-        Theme.applyRipple(card,card.getBackground(),Theme.RIPPLE_LIGHT);
+        card.setForeground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(rippleColor),null,Theme.shape(this,Color.WHITE,24)));
         final int slop=ViewConfiguration.get(this).getScaledTouchSlop();
         final int timeout=ViewConfiguration.getLongPressTimeout();
         final float threshold=ui.dp(76);
@@ -712,6 +751,7 @@ public final class ReviewActivity extends ScreenActivity {
         Sheet sheet=new Sheet(this)
             .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文、类别或例句",()->edit(word))
             .item(R.drawable.ic_layers,"相关词","近义、扩、同根、反义与关系图",()->openRelations(word))
+            .item(R.drawable.ic_sparkles,"卡片外观",cardStyle.summary(),()->Motion.open(this,new Intent(this,CardStyleActivity.class)))
             .item(R.drawable.ic_circle_alert,"手势说明","轻点翻面 / 记得，下滑忘记，长按编辑",()->showGestureGuide(false));
         if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看附带图片",()->Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english"))));
         sheet.show();

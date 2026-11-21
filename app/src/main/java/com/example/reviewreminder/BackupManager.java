@@ -24,7 +24,7 @@ import java.util.Set;
  * normalized SQLite tables ({@link LocalStore}).
  */
 final class BackupManager {
-    static final int VERSION=4,MAX_BYTES=128*1024*1024;
+    static final int VERSION=5,MAX_BYTES=128*1024*1024;
     private static final Set<String> SECRET_KEYS=new HashSet<>(Arrays.asList(
         "apikey","api_key","api-key","apikeyenc","api_key_enc","apikeyencrypted","speechkey","voicekey","voiceapikey",
         "mimokey","deepseekkey","authorization","authorizationheader","bearer","token","accesstoken","refreshtoken",
@@ -35,7 +35,7 @@ final class BackupManager {
     static final class Backup {
         int version;long exportedAt;
         JSONArray tasks=new JSONArray(),attempts=new JSONArray(),translationExercises=new JSONArray(),voiceProfiles=new JSONArray(),trainingOrder=new JSONArray(),relations=new JSONArray(),relationGroups=new JSONArray(),relationMembers=new JSONArray(),aiMistakes=new JSONArray();
-        JSONObject wrongStates=new JSONObject(),trainingSelections=new JSONObject(),activeSessions=new JSONObject(),voiceSettings=new JSONObject(),images=new JSONObject(),audio=new JSONObject();
+        JSONObject wrongStates=new JSONObject(),trainingSelections=new JSONObject(),activeSessions=new JSONObject(),voiceSettings=new JSONObject(),images=new JSONObject(),audio=new JSONObject(),cardStyle=new JSONObject(),cardStyleImages=new JSONObject();
     }
 
     static final class Result {
@@ -65,6 +65,8 @@ final class BackupManager {
             JSONObject session=active.optJSONObject(sessionKeys.next());if(session==null)continue;
             String selection=session.optString("selectionId");if(!selection.isEmpty()&&!selections.has(selection)){JSONObject saved=TrainingStore.selection(c,selection);if(saved!=null)selections.put(selection,cleanObject(saved));}
         }
+        CardStyle exportedCardStyle=CardStyleStore.load(c);
+        out.put("cardStyle",exportedCardStyle.toJson());
         if(includeImages){
             JSONObject images=new JSONObject();JSONArray tasks=out.optJSONArray("tasks");
             for(int i=0;tasks!=null&&i<tasks.length();i++){
@@ -72,7 +74,14 @@ final class BackupManager {
                 for(int j=0;j<words.length();j++){JSONObject word=words.optJSONObject(j);if(word==null)continue;String path=word.optString("connectionImage");if(!path.isEmpty()&&!images.has(path)&&ConnectionImages.exists(c,path))try{images.put(path,ConnectionImages.base64(c,path));}catch(Exception ignored){}}
             }
             out.put("images",images);
-        }else out.put("images",new JSONObject());
+            JSONObject styleImages=new JSONObject();
+            for(String name:new String[]{exportedCardStyle.backgroundImage,exportedCardStyle.bottomImage}){
+                if(!name.isEmpty()&&!styleImages.has(name)&&CardStyleImages.exists(c,name)){
+                    try{styleImages.put(name,CardStyleImages.base64(c,name));}catch(Exception ignored){}
+                }
+            }
+            out.put("cardStyleImages",styleImages);
+        }else{out.put("images",new JSONObject());out.put("cardStyleImages",new JSONObject());}
         if(includeAudio){
             JSONObject audio=new JSONObject();JSONArray profilesOut=out.optJSONArray("voiceProfiles");
             for(int i=0;profilesOut!=null&&i<profilesOut.length();i++){
@@ -104,10 +113,10 @@ final class BackupManager {
         int version=root.optInt("version",0);if(version<1||version>VERSION)throw new IllegalArgumentException("不支持的备份版本："+version);
         Backup backup=new Backup();backup.version=version;backup.exportedAt=root.optLong("exportedAt",0);
         backup.tasks=array(root,"tasks",true);backup.attempts=array(root,"spellingAttempts",false);backup.translationExercises=array(root,"translationExercises",false);backup.trainingOrder=array(root,"trainingSelectionOrder",false);backup.voiceProfiles=array(root,"voiceProfiles",false);backup.aiMistakes=array(root,"aiMistakes",false);
-        backup.wrongStates=object(root,"wrongStates");backup.trainingSelections=object(root,"trainingSelections");backup.activeSessions=object(root,"spellingSessions");backup.voiceSettings=object(root,"voiceSettings");backup.images=object(root,"images");backup.audio=object(root,"audio");
+        backup.wrongStates=object(root,"wrongStates");backup.trainingSelections=object(root,"trainingSelections");backup.activeSessions=object(root,"spellingSessions");backup.voiceSettings=object(root,"voiceSettings");backup.images=object(root,"images");backup.audio=object(root,"audio");backup.cardStyle=object(root,"cardStyle");backup.cardStyleImages=object(root,"cardStyleImages");
         backup.relations=array(root,"relations",false);backup.relationGroups=array(root,"relationGroups",false);backup.relationMembers=array(root,"relationMembers",false);
         validateTasks(backup.tasks);validateSelections(backup.trainingSelections);validateProfiles(backup.voiceProfiles);
-        validateImages(backup.images);validateAudio(backup.audio);validateGraph(backup.relations,backup.relationGroups,backup.relationMembers);
+        validateImages(backup.images);validateImages(backup.cardStyleImages);validateAudio(backup.audio);validateGraph(backup.relations,backup.relationGroups,backup.relationMembers);
         return backup;
     }
 
@@ -176,6 +185,24 @@ final class BackupManager {
                 profiles.put(p);result.profiles++;
             }
             for(Iterator<String> keys=backup.images.keys();keys.hasNext();){String path=keys.next();String data=backup.images.optString(path,"");if(data.isEmpty())continue;ConnectionImages.StagedFile staged=ConnectionImages.stage(c,path,data);pending.add(new PendingFile(staged.temp,staged.target));result.images++;}
+            Set<String> stagedCardImages=new HashSet<>();
+            for(Iterator<String> keys=backup.cardStyleImages.keys();keys.hasNext();){
+                String path=keys.next();String data=backup.cardStyleImages.optString(path,"");
+                if(data.isEmpty()||CardStyle.sanitizeImageName(path).isEmpty())continue;
+                ConnectionImages.StagedFile staged=CardStyleImages.stage(c,path,data);
+                pending.add(new PendingFile(staged.temp,staged.target));
+                stagedCardImages.add(path);result.images++;
+            }
+            CardStyle incomingStyle=backup.cardStyle.length()>0?CardStyle.fromJson(backup.cardStyle):null;
+            if(incomingStyle!=null){
+                if(CardStyle.BG_IMAGE.equals(incomingStyle.backgroundMode)&&!stagedCardImages.contains(incomingStyle.backgroundImage)&&!CardStyleImages.exists(c,incomingStyle.backgroundImage)){
+                    incomingStyle=incomingStyle.withBackgroundDefault();
+                }
+                if(CardStyle.BOTTOM_IMAGE.equals(incomingStyle.bottomMode)&&!stagedCardImages.contains(incomingStyle.bottomImage)&&!CardStyleImages.exists(c,incomingStyle.bottomImage)){
+                    incomingStyle=incomingStyle.withBottomNone();
+                }
+            }
+            final CardStyle restoredCardStyle=incomingStyle;
             LocalStore.inTransaction(c,()->{
                 SQLiteDatabase db=LocalStore.database();
                 LocalStore.writeAllTasksLocked(db,nextTasks);
@@ -200,11 +227,15 @@ final class BackupManager {
                     JSONObject voice=backup.voiceSettings;String provider=voice.optString("provider",VoiceStore.SYSTEM);String voiceId=voice.optString("voiceId","");if(!VoiceStore.SYSTEM.equals(provider)&&!VoiceStore.preset(voiceId)&&findProfile(profiles,voiceId)==null){provider=VoiceStore.SYSTEM;voiceId="";}
                     edit.putString("voiceProvider",provider).putString("voiceId",voiceId).putInt("speechRate",Math.max(0,Math.min(4,voice.optInt("speechRate",2)))).putString("mimoSpeechModel",voice.optString("mimoSpeechModel","mimo-v2.5-tts"));
                     if(voice.has("speechVoice"))edit.putString("speechVoice",voice.optString("speechVoice",""));
+                    if(restoredCardStyle!=null)edit.putString(CardStyleStore.PREF_KEY,restoredCardStyle.toJson().toString());
+                    else edit.remove(CardStyleStore.PREF_KEY);
+                }else if(restoredCardStyle!=null&&CardStyleStore.load(c).isDefault()){
+                    edit.putString(CardStyleStore.PREF_KEY,restoredCardStyle.toJson().toString());
                 }
                 if(!edit.commit())throw new IllegalStateException("备份数据未能写入设备");
                 WordRelations.restore(c,backup.relations,backup.relationGroups,backup.relationMembers,replace);
             });
-            committed=true;result.relations=backup.relations.length();publishFiles(pending);reschedule(c,result,currentTasks,nextTasks,replace);return result;
+            committed=true;result.relations=backup.relations.length();publishFiles(pending);CardStyleImages.clearMemoryCache();reschedule(c,result,currentTasks,nextTasks,replace);return result;
         }catch(Exception e){
             if(!committed){discardFiles(pending);throw e;}
             result.warning="数据已写入，但部分附件未能恢复："+(e.getMessage()==null?"写入失败":e.getMessage());

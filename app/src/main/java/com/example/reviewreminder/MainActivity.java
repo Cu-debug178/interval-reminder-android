@@ -1557,6 +1557,7 @@ public class MainActivity extends ScreenActivity {
         Segmented mode=segmentBlock(cards,"卡片正面",new String[]{"先英文","先中文","随机"},Math.max(0,Math.min(2,prefs.getInt("reviewMode",0))));
         Switch shuffle=ui.switchRow(cards,"打乱单词顺序",null,prefs.getBoolean("shuffleWords",false));
         Switch motion=ui.switchRow(cards,"界面动态效果","关闭后页面与列表的过渡立即呈现",prefs.getBoolean("motion",true));
+        ui.item(cards,0,"复习卡片外观",CardStyleStore.load(this).summary(),null,true,v->Motion.open(this,new Intent(this,CardStyleActivity.class)));
         content.addView(cards,WordUi.lp());
         ui.note(content,"词性/义项练习可在任务详情里单独开始：正面英文，从多个词性释义中选择。");
 

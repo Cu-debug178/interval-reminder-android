@@ -26,7 +26,7 @@ public final class BackupActivity extends ScreenActivity {
         super.onCreate(state);ui=new WordUi(this);ui.start("数据备份与恢复");
         ui.body.addView(ui.text("导出版本化 JSON 备份，可在另一台设备或重装后恢复。备份不会包含任何 API Key。词汇关系会一并导出；参考音频默认不导出，旧的附带图片可单独选择。",13,WordUi.MUTED));ui.gap(ui.body,16);
         LinearLayout card=ui.card();card.addView(ui.text("包含内容",15,Theme.INK));ui.gap(card,4);card.addView(ui.text("计划与单词、复习进度、拼写历史、错题本、词汇关系、训练选词、AI 翻译记录和音色配置。",12,WordUi.MUTED));ui.gap(card,10);
-        images=new CheckBox(this);images.setText("包含单词卡上的旧图片");images.setChecked(true);images.setMinHeight(ui.dp(48));card.addView(images);
+        images=new CheckBox(this);images.setText("包含单词卡旧图片与卡片外观图片");images.setChecked(true);images.setMinHeight(ui.dp(48));card.addView(images);
         audio=new CheckBox(this);audio.setText("包含参考音频（可能包含你的声音，体积较大）");audio.setChecked(false);audio.setMinHeight(ui.dp(48));card.addView(audio);
         ui.body.addView(card);ui.gap(ui.body,16);
         export=ui.primaryButton("导出备份文件",v->chooseExport());ui.body.addView(export);ui.gap(ui.body,10);
