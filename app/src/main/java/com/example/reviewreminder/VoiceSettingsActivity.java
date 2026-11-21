@@ -796,7 +796,7 @@ public final class VoiceSettingsActivity extends ScreenActivity {
 
         LinearLayout form = ui.col();
         LinearLayout infoRow = ui.row();
-        infoRow.setPadding(ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_10), ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_10));
+        infoRow.setPadding(ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_8), ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_8));
         infoRow.setBackground(Theme.shape(this, Theme.SUNK, Theme.RADIUS_FIELD));
         String info = displayName.isEmpty() ? "已选择音频文件" : displayName;
         if (rawSize > 0L) {

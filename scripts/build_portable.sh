@@ -88,6 +88,7 @@ run_jvm_tests() {
     mkdir -p "$core_out"
     echo "Compiling CoreTest against $json_jar:$android_jar ..."
     javac --release 8 -cp "$json_jar:$android_jar" -d "$core_out" \
+      "$ROOT/app/src/main/java/com/example/reviewreminder/Base64Compat.java" \
       "$ROOT/app/src/main/java/com/example/reviewreminder/IntervalPlan.java" \
       "$ROOT/app/src/main/java/com/example/reviewreminder/LegacyMigration.java" \
       "$ROOT/app/src/main/java/com/example/reviewreminder/LocalStore.java" \

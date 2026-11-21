@@ -661,7 +661,7 @@ final class LocalStore {
         cv.put("name",p.optString("name",""));
         cv.put("path",p.optString("path",""));
         cv.put("mime",p.optString("mime",""));
-        cv.put("kind",p.optString("kind",VoiceStore.KIND_CLONE));
+        cv.put("kind",p.optString("kind","clone"));
         cv.put("description",p.optString("description",""));
         cv.put("consented_at",p.optLong("consentedAt",0L));
         cv.put("consent_version",p.optInt("consentVersion",0));
