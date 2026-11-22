@@ -35,7 +35,7 @@ final class BackupManager {
     static final class Backup {
         int version;long exportedAt;
         JSONArray tasks=new JSONArray(),attempts=new JSONArray(),translationExercises=new JSONArray(),voiceProfiles=new JSONArray(),trainingOrder=new JSONArray(),relations=new JSONArray(),relationGroups=new JSONArray(),relationMembers=new JSONArray(),aiMistakes=new JSONArray();
-        JSONObject wrongStates=new JSONObject(),trainingSelections=new JSONObject(),activeSessions=new JSONObject(),voiceSettings=new JSONObject(),images=new JSONObject(),audio=new JSONObject(),cardStyle=new JSONObject(),cardStyleImages=new JSONObject();
+        JSONObject wrongStates=new JSONObject(),trainingSelections=new JSONObject(),activeSessions=new JSONObject(),voiceSettings=new JSONObject(),images=new JSONObject(),audio=new JSONObject(),cardStyle=new JSONObject(),cardStyleImages=new JSONObject(),appTheme=new JSONObject();
     }
 
     static final class Result {
@@ -67,6 +67,7 @@ final class BackupManager {
         }
         CardStyle exportedCardStyle=CardStyleStore.load(c);
         out.put("cardStyle",exportedCardStyle.toJson());
+        out.put("appTheme",AppThemeStore.load(c).toJson());
         if(includeImages){
             JSONObject images=new JSONObject();JSONArray tasks=out.optJSONArray("tasks");
             for(int i=0;tasks!=null&&i<tasks.length();i++){
@@ -113,7 +114,7 @@ final class BackupManager {
         int version=root.optInt("version",0);if(version<1||version>VERSION)throw new IllegalArgumentException("不支持的备份版本："+version);
         Backup backup=new Backup();backup.version=version;backup.exportedAt=root.optLong("exportedAt",0);
         backup.tasks=array(root,"tasks",true);backup.attempts=array(root,"spellingAttempts",false);backup.translationExercises=array(root,"translationExercises",false);backup.trainingOrder=array(root,"trainingSelectionOrder",false);backup.voiceProfiles=array(root,"voiceProfiles",false);backup.aiMistakes=array(root,"aiMistakes",false);
-        backup.wrongStates=object(root,"wrongStates");backup.trainingSelections=object(root,"trainingSelections");backup.activeSessions=object(root,"spellingSessions");backup.voiceSettings=object(root,"voiceSettings");backup.images=object(root,"images");backup.audio=object(root,"audio");backup.cardStyle=object(root,"cardStyle");backup.cardStyleImages=object(root,"cardStyleImages");
+        backup.wrongStates=object(root,"wrongStates");backup.trainingSelections=object(root,"trainingSelections");backup.activeSessions=object(root,"spellingSessions");backup.voiceSettings=object(root,"voiceSettings");backup.images=object(root,"images");backup.audio=object(root,"audio");backup.cardStyle=object(root,"cardStyle");backup.cardStyleImages=object(root,"cardStyleImages");backup.appTheme=object(root,"appTheme");
         backup.relations=array(root,"relations",false);backup.relationGroups=array(root,"relationGroups",false);backup.relationMembers=array(root,"relationMembers",false);
         validateTasks(backup.tasks);validateSelections(backup.trainingSelections);validateProfiles(backup.voiceProfiles);
         validateImages(backup.images);validateImages(backup.cardStyleImages);validateAudio(backup.audio);validateGraph(backup.relations,backup.relationGroups,backup.relationMembers);
@@ -203,6 +204,7 @@ final class BackupManager {
                 }
             }
             final CardStyle restoredCardStyle=incomingStyle;
+            final AppTheme restoredAppTheme=backup.appTheme.length()>0?AppTheme.fromJson(backup.appTheme):null;
             LocalStore.inTransaction(c,()->{
                 SQLiteDatabase db=LocalStore.database();
                 LocalStore.writeAllTasksLocked(db,nextTasks);
@@ -229,10 +231,18 @@ final class BackupManager {
                     if(voice.has("speechVoice"))edit.putString("speechVoice",voice.optString("speechVoice",""));
                     if(restoredCardStyle!=null)edit.putString(CardStyleStore.PREF_KEY,restoredCardStyle.toJson().toString());
                     else edit.remove(CardStyleStore.PREF_KEY);
-                }else if(restoredCardStyle!=null&&CardStyleStore.load(c).isDefault()){
-                    edit.putString(CardStyleStore.PREF_KEY,restoredCardStyle.toJson().toString());
+                    if(restoredAppTheme!=null)edit.putString(AppThemeStore.PREF_KEY,restoredAppTheme.toJson().toString());
+                    else edit.remove(AppThemeStore.PREF_KEY);
+                }else{
+                    if(restoredCardStyle!=null&&CardStyleStore.load(c).isDefault()){
+                        edit.putString(CardStyleStore.PREF_KEY,restoredCardStyle.toJson().toString());
+                    }
+                    if(restoredAppTheme!=null&&AppThemeStore.load(c).isDefault()){
+                        edit.putString(AppThemeStore.PREF_KEY,restoredAppTheme.toJson().toString());
+                    }
                 }
                 if(!edit.commit())throw new IllegalStateException("备份数据未能写入设备");
+                Theme.apply(c);
                 WordRelations.restore(c,backup.relations,backup.relationGroups,backup.relationMembers,replace);
             });
             committed=true;result.relations=backup.relations.length();publishFiles(pending);CardStyleImages.clearMemoryCache();reschedule(c,result,currentTasks,nextTasks,replace);return result;

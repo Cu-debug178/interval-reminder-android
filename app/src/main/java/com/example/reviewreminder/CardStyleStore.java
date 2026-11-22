@@ -44,8 +44,6 @@ final class CardStyleStore {
     }
 
     static boolean isNightMode(Context c) {
-        if (c == null) return false;
-        int mask = c.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        return mask == Configuration.UI_MODE_NIGHT_YES;
+        return AppThemeStore.isDark(c);
     }
 }

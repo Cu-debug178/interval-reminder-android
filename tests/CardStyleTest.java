@@ -73,12 +73,29 @@ public final class CardStyleTest {
         CardStyle bottomImg = def.withBottomImage("bt_abcd5678.jpg");
         check(CardStyle.BOTTOM_IMAGE.equals(bottomImg.bottomMode) && "bt_abcd5678.jpg".equals(bottomImg.bottomImage), "valid bottom image name preserved");
 
-        // 6. JSON round-trip & corrupt JSON recovery
-        JSONObject json = quoted.toJson();
+        // 6. Layout modes, progress styles, theme-switch priority, and legacy JSON migration
+        check(CardStyle.LAYOUT_CLASSIC.equals(def.layoutMode) && !def.isImmersiveLayout(), "default layout is classic framed");
+        check(CardStyle.PROGRESS_LINE.equals(def.progressStyle), "default progress style is restrained line");
+        CardStyle immersiveSeg = def.withLayoutMode(CardStyle.LAYOUT_IMMERSIVE).withProgressStyle(CardStyle.PROGRESS_SEGMENTS);
+        check(immersiveSeg.isImmersiveLayout() && CardStyle.PROGRESS_SEGMENTS.equals(immersiveSeg.progressStyle), "immersive + segments set");
+        check(!immersiveSeg.isDefault(), "immersive layout is non-default");
+        CardStyle ringStyle = def.withProgressStyle(CardStyle.PROGRESS_RING);
+        check(CardStyle.PROGRESS_RING.equals(ringStyle.progressStyle), "ring progress style preserved");
+        check(CardStyle.LAYOUT_CLASSIC.equals(def.withLayoutMode("invalid").layoutMode), "invalid layout normalizes to classic");
+        check(CardStyle.PROGRESS_LINE.equals(def.withProgressStyle("invalid").progressStyle), "invalid progress style normalizes to line");
+        // Legacy JSON without layoutMode / progressStyle fields migrates cleanly to classic + line while preserving custom bg/quote
+        String legacyJson = "{\"backgroundMode\":\"gradient\",\"backgroundPreset\":\"pine_mist\",\"bottomMode\":\"quote\",\"quoteText\":\"保持节奏\"}";
+        CardStyle migrated = CardStyle.fromJsonString(legacyJson);
+        check(CardStyle.LAYOUT_CLASSIC.equals(migrated.layoutMode) && CardStyle.PROGRESS_LINE.equals(migrated.progressStyle), "legacy JSON defaults to classic + line");
+        check(CardStyle.BG_GRADIENT.equals(migrated.backgroundMode) && "保持节奏".equals(migrated.quoteText), "legacy JSON preserves background & quote");
+
+        // 7. JSON round-trip & corrupt JSON recovery
+        CardStyle fullCustom = quoted.withLayoutMode(CardStyle.LAYOUT_IMMERSIVE).withProgressStyle(CardStyle.PROGRESS_RING);
+        JSONObject json = fullCustom.toJson();
         String raw = json.toString();
         check(!raw.contains("base64") && !raw.contains("data:image"), "serialized prefs JSON contains no Base64 image data");
         CardStyle restored = CardStyle.fromJsonString(raw);
-        check(quoted.equals(restored), "JSON round-trip preserves full style");
+        check(fullCustom.equals(restored), "JSON round-trip preserves full style including layoutMode and progressStyle");
         check(CardStyle.fromJsonString("{not valid json").isDefault(), "corrupt JSON gracefully recovers to defaults");
         check(CardStyle.fromJsonString("").isDefault(), "blank JSON recovers to defaults");
 

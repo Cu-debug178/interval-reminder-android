@@ -44,7 +44,7 @@ final class Sheet {
 
     Sheet(Activity a){
         this.a=a;
-        dialog=new Dialog(a,R.style.SheetDialog){
+        dialog=new Dialog(a,Theme.DARK?R.style.SheetDialog_Dark:R.style.SheetDialog){
             @Override public void setCancelable(boolean c){super.setCancelable(c);cancelable=c;}
             // Same rule as Dialog: asking to close on outside touch also makes the dialog cancelable.
             @Override public void setCanceledOnTouchOutside(boolean c){super.setCanceledOnTouchOutside(c);closeOnTouchOutside=c;if(c)cancelable=true;}
@@ -52,7 +52,8 @@ final class Sheet {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         panel=new LinearLayout(a);panel.setOrientation(LinearLayout.VERTICAL);
         panel.setBackground(Theme.topRounded(a,Theme.SURFACE,Theme.RADIUS_SHEET));
-        panel.setPadding(0,dp(8),0,dp(12));
+        final int baseBottomPad=dp(12);
+        panel.setPadding(0,dp(8),0,baseBottomPad);
         View handle=new View(a);handle.setBackground(Theme.shape(a,Theme.HAIRLINE,2));
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(dp(36),dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;hp.bottomMargin=dp(8);panel.addView(handle,hp);
         header=col();header.setPadding(dp(24),dp(12),dp(24),dp(4));header.setVisibility(View.GONE);panel.addView(header);
@@ -64,10 +65,15 @@ final class Sheet {
         panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         buttons=new LinearLayout(a);buttons.setOrientation(LinearLayout.HORIZONTAL);buttons.setPadding(dp(24),dp(16),dp(24),dp(4));buttons.setVisibility(View.GONE);panel.addView(buttons);
         // Full-screen, non-floating window: the panel sits flush on the navigation bar (painted the
-        // sheet's white) instead of stopping above it, and is capped at a readable width on tablets.
+        // sheet's surface) instead of stopping above it, and is capped at a readable width on tablets.
         // Weighted scroll would collapse in WRAP_CONTENT; a max-height wrapper keeps long sheets scrollable.
         MaxHeight sheetView=new MaxHeight(a,panel);
         Scrim root=new Scrim(a,sheetView);
+        root.setOnApplyWindowInsetsListener((v,insets)->{
+            int bottomInset=insets.getSystemWindowInsetBottom();
+            panel.setPadding(0,dp(8),0,baseBottomPad+bottomInset);
+            return insets;
+        });
         float widthDp=a.getResources().getDisplayMetrics().widthPixels/a.getResources().getDisplayMetrics().density;
         root.addView(sheetView,new FrameLayout.LayoutParams(widthDp>600?dp(600):ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL));
         dialog.setContentView(root);
@@ -78,13 +84,14 @@ final class Sheet {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT);
             w.setGravity(Gravity.BOTTOM);
-            w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);w.setDimAmount(.32f);
+            w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);w.setDimAmount(Theme.DARK?.54f:.32f);
             w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             if(!Motion.enabled(a))w.setWindowAnimations(0);
             w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             w.setStatusBarColor(Color.TRANSPARENT);
             if(android.os.Build.VERSION.SDK_INT>=26)w.setNavigationBarColor(Theme.SURFACE);
-            w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|(android.os.Build.VERSION.SDK_INT>=26?0x10:0));
+            int flags=Theme.DARK?0:(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|(android.os.Build.VERSION.SDK_INT>=26?0x10:0));
+            w.getDecorView().setSystemUiVisibility(flags);
         }
     }
 
@@ -154,9 +161,9 @@ final class Sheet {
     /** Filled primary action; dismisses then runs. */
     Sheet primary(String label,Runnable action){return primaryIf(label,()->{if(action!=null)action.run();return true;});}
     /** Filled primary action that stays open when {@code check} returns false (validation). */
-    Sheet primaryIf(String label,Check check){primary=addButton(label,Theme.PRIMARY,Color.WHITE,Theme.RIPPLE_DARK,check,true);return this;}
+    Sheet primaryIf(String label,Check check){primary=addButton(label,Theme.PRIMARY,Theme.ON_PRIMARY,Theme.RIPPLE_DARK,check,true);return this;}
     /** Destructive filled action. */
-    Sheet danger(String label,Runnable action){primary=addButton(label,Theme.DANGER,Color.WHITE,Theme.RIPPLE_DARK,()->{if(action!=null)action.run();return true;},true);return this;}
+    Sheet danger(String label,Runnable action){primary=addButton(label,Theme.DANGER,Theme.ON_PRIMARY,Theme.RIPPLE_DARK,()->{if(action!=null)action.run();return true;},true);return this;}
     /** Quiet action (cancel / keep / back); null action simply closes. */
     Sheet secondary(String label,Runnable action){return secondaryIf(label,()->{if(action!=null)action.run();return true;});}
     Sheet secondaryIf(String label,Check check){secondary=addButton(label,Theme.SUNK,Theme.INK,Theme.RIPPLE_LIGHT,check,false);return this;}
@@ -185,18 +192,26 @@ final class Sheet {
     Sheet cancelable(boolean on){dialog.setCancelable(on);dialog.setCanceledOnTouchOutside(on);return this;}
     Sheet onDismiss(Runnable r){userDismiss=r;return this;}
     Sheet show(){
-        if(a.isFinishing())return this;
+        if(a.isFinishing()||a.isDestroyed())return this;
         if(!dialog.isShowing()){
             boolean nested=false;
             for(Sheet s:open.keySet())if(s!=this&&s.a==a&&s.isShowing()){nested=true;break;}
-            Window w=dialog.getWindow();if(w!=null)w.setDimAmount(nested?0f:.32f);
+            Window w=dialog.getWindow();if(w!=null)w.setDimAmount(nested?0f:(Theme.DARK?.54f:.32f));
             dialog.show();
             if(dialog.isShowing())open.put(this,Boolean.TRUE);
         }else dialog.show();
         return this;
     }
-    void dismiss(){dialog.dismiss();}
+    void dismiss(){try{if(dialog.isShowing())dialog.dismiss();}catch(Exception ignored){}open.remove(this);}
     boolean isShowing(){return dialog.isShowing();}
+
+    /** Safely dismisses any open sheets belonging to {@code a} so config changes never leak windows. */
+    static void dismissAllFor(Activity a){
+        if(a==null)return;
+        java.util.List<Sheet> targets=new java.util.ArrayList<>();
+        for(Sheet s:open.keySet())if(s!=null&&s.a==a)targets.add(s);
+        for(Sheet s:targets)s.dismiss();
+    }
 
     /** Convenience: single-choice picker. */
     static Sheet pick(Activity a,String title,String[] options,int selected,OnPick pick){return new Sheet(a).title(title).choices(options,selected,pick).show();}

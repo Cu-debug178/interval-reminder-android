@@ -49,4 +49,48 @@
         <item name="android:windowEnterAnimation">@anim/sheet_in</item>
         <item name="android:windowExitAnimation">@anim/sheet_out</item>
     </style>
+
+    <!-- True application-level dark theme for platform widgets, cursors, system dialogs, and sheets. -->
+    <style name="AppTheme.Dark" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">#2D7A67</item>
+        <item name="android:colorPrimaryDark">#121614</item>
+        <item name="android:colorAccent">#2D7A67</item>
+        <item name="android:colorControlNormal">#8B9892</item>
+        <item name="android:colorControlActivated">#2D7A67</item>
+        <item name="android:colorControlHighlight">#20F1F4F2</item>
+        <item name="android:colorButtonNormal">#242C29</item>
+        <item name="android:textColorPrimary">#F1F4F2</item>
+        <item name="android:textColorSecondary">#B7C2BD</item>
+        <item name="android:textColorHint">#8B9892</item>
+        <item name="android:windowBackground">#121614</item>
+        <item name="android:statusBarColor">#121614</item>
+        <item name="android:navigationBarColor">#121614</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:alertDialogTheme">@style/AppAlert.Dark</item>
+        <item name="android:timePickerDialogTheme">@style/AppAlert.Dark</item>
+        <item name="android:datePickerDialogTheme">@style/AppAlert.Dark</item>
+    </style>
+
+    <style name="AppAlert.Dark" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#2D7A67</item>
+        <item name="android:colorPrimary">#2D7A67</item>
+        <item name="android:colorControlActivated">#2D7A67</item>
+        <item name="android:textColorPrimary">#F1F4F2</item>
+        <item name="android:windowBackground">@drawable/dialog_surface_dark</item>
+    </style>
+
+    <style name="SheetDialog.Dark" parent="@android:style/Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@style/SheetAnimation</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.54</item>
+        <item name="android:windowMinWidthMajor">100%</item>
+        <item name="android:windowMinWidthMinor">100%</item>
+        <item name="android:colorAccent">#2D7A67</item>
+        <item name="android:colorControlActivated">#2D7A67</item>
+        <item name="android:colorControlNormal">#8B9892</item>
+        <item name="android:textColorPrimary">#F1F4F2</item>
+        <item name="android:textColorHint">#8B9892</item>
+    </style>
 </resources>

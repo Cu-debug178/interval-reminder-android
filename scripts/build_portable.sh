@@ -57,8 +57,9 @@ run_jvm_tests() {
   rm -rf "$out"
   mkdir -p "$out"
 
-  echo "Compiling pure-JVM unit tests (ScheduleTest, MimoTtsTest, CardStyleTest) ..."
+  echo "Compiling pure-JVM unit tests (ScheduleTest, MimoTtsTest, CardStyleTest, AppThemeTest) ..."
   javac --release 8 -cp "$json_jar" -d "$out" \
+    "$ROOT/app/src/main/java/com/example/reviewreminder/AppTheme.java" \
     "$ROOT/app/src/main/java/com/example/reviewreminder/Base64Compat.java" \
     "$ROOT/app/src/main/java/com/example/reviewreminder/CardStyle.java" \
     "$ROOT/app/src/main/java/com/example/reviewreminder/MimoTtsProtocol.java" \
@@ -67,13 +68,15 @@ run_jvm_tests() {
     "$ROOT/app/src/main/java/com/example/reviewreminder/WavAudio.java" \
     "$ROOT/tests/ScheduleTest.java" \
     "$ROOT/tests/MimoTtsTest.java" \
-    "$ROOT/tests/CardStyleTest.java"
+    "$ROOT/tests/CardStyleTest.java" \
+    "$ROOT/tests/AppThemeTest.java"
 
   (
     cd "$ROOT"
     java -Xmx256m -cp "$out:$json_jar" ScheduleTest
     java -Xmx256m -cp "$out:$json_jar" MimoTtsTest
     java -Xmx256m -cp "$out:$json_jar" CardStyleTest
+    java -Xmx256m -cp "$out:$json_jar" AppThemeTest
   )
 
   local sdk=""

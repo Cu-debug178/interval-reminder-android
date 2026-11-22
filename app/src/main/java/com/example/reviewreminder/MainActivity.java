@@ -122,6 +122,10 @@ public class MainActivity extends ScreenActivity {
     // ══ Lifecycle ═════════════════════════════════════════════════════════════
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        if(b!=null){
+            currentPage=Math.max(0,Math.min(2,b.getInt("currentPage",0)));
+            settingsCategory=b.getInt("settingsCategory",-1);
+        }
         interaction.prepare(this);
         ui=new WordUi(this);
         buildShell();
@@ -132,6 +136,12 @@ public class MainActivity extends ScreenActivity {
         lastExactAllowed=Notifications.exactAllowed(this);
         exactStateKnown=true;
         if(!Store.prefs(this).getBoolean("setupComplete",false))getWindow().getDecorView().post(this::showSetupWizard);
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out){
+        out.putInt("currentPage",currentPage);
+        out.putInt("settingsCategory",settingsCategory);
+        super.onSaveInstanceState(out);
     }
 
     @Override protected void onResume(){
@@ -168,7 +178,12 @@ public class MainActivity extends ScreenActivity {
         super.onBackPressed();
     }
 
-    @Override protected void onDestroy(){interaction.release();super.onDestroy();}
+    @Override protected void onDestroy(){
+        if(setupSheet!=null){setupSheet.dismiss();setupSheet=null;}
+        if(setupDialog!=null){try{if(setupDialog.isShowing())setupDialog.dismiss();}catch(Exception ignored){}setupDialog=null;}
+        interaction.release();
+        super.onDestroy();
+    }
 
     // ══ Shell & navigation ════════════════════════════════════════════════════
     private void buildShell(){
@@ -235,7 +250,7 @@ public class MainActivity extends ScreenActivity {
         for(int i=0;i<3;i++){
             boolean on=i==page;
             navItems[i].setSelected(on);
-            navIcons[i].setImageTintList(ColorStateList.valueOf(on?Theme.PRIMARY:Theme.INK_3));
+            navIcons[i].setImageTintList(ColorStateList.valueOf(on?Theme.ACCENT_TEXT:Theme.INK_3));
             navLabels[i].setTextColor(on?Theme.INK:Theme.INK_3);
             navLabels[i].setTypeface(on?Theme.MEDIUM:Theme.REGULAR);
             View pill=navPills[i];
@@ -1189,7 +1204,7 @@ public class MainActivity extends ScreenActivity {
     }
 
     // ══ 我的: statistics, practice, settings ══════════════════════════════════
-    private String[] settingNames(){return new String[]{"复习计划","复习与拼写","声音与触感","提醒时段","AI","权限管理"};}
+    private String[] settingNames(){return new String[]{"复习计划","复习与拼写","声音与触感","提醒时段","AI","权限管理","外观与主题"};}
 
     private void profilePage(){
         if(settingsCategory>=0){categoryPage();return;}
@@ -1208,8 +1223,8 @@ public class MainActivity extends ScreenActivity {
         ui.section(content,"设置",null);
         LinearLayout settings=ui.group();
         String[] names=settingNames();
-        int[] icons={R.drawable.ic_repeat,R.drawable.ic_spell_check,R.drawable.ic_volume_2,R.drawable.ic_clock,R.drawable.ic_sparkles,R.drawable.ic_shield_check};
-        String[] notes={"默认间隔与自定义轮次","卡片正面、拼写方式","朗读、音效与触感",windowSummary(),aiSummary(),permissionSummary()};
+        int[] icons={R.drawable.ic_repeat,R.drawable.ic_spell_check,R.drawable.ic_volume_2,R.drawable.ic_clock,R.drawable.ic_sparkles,R.drawable.ic_shield_check,R.drawable.ic_settings_2};
+        String[] notes={"默认间隔与自定义轮次","卡片正面、拼写方式","朗读、音效与触感",windowSummary(),aiSummary(),permissionSummary(),AppThemeStore.load(this).summary()};
         for(int i=0;i<names.length;i++){
             final int category=i;
             ui.item(settings,icons[i],names[i],notes[i],null,true,v->openSettingsCategory(category));
@@ -1364,8 +1379,106 @@ public class MainActivity extends ScreenActivity {
         else if(settingsCategory==2)soundSettings();
         else if(settingsCategory==3)windowSettings();
         else if(settingsCategory==4)aiSettings();
-        else permissionSettings();
+        else if(settingsCategory==5)permissionSettings();
+        else appearanceSettings();
         settingsDraftStart=settingsDraft==null?null:settingsDraft.value();
+    }
+
+    private void appearanceSettings(){
+        AppTheme current=AppThemeStore.load(this);
+
+        ui.section(content,"视觉风格",null);
+        LinearLayout styleGroup=ui.group();
+        for(AppTheme.StyleOption opt:AppTheme.STYLES){
+            boolean selected=opt.id.equals(current.style);
+            ui.divide(styleGroup,Theme.ROW_PAD);
+            LinearLayout row=ui.row();
+            row.setMinimumHeight(dp(64));
+            row.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_12),dp(Theme.ROW_PAD),dp(Theme.SPACE_12));
+
+            // Dual swatch preview showing surface + primary accent for the active light/dark state.
+            FrameLayout swatch=new FrameLayout(this);
+            int bgHex=Theme.DARK?opt.darkPreviewBg:opt.lightPreviewBg;
+            int acHex=Theme.DARK?opt.darkPreviewAccent:opt.lightPreviewAccent;
+            swatch.setBackground(Theme.shape(this,bgHex,12,Theme.HAIRLINE,1));
+            View dot=new View(this);
+            dot.setBackground(Theme.oval(acHex));
+            swatch.addView(dot,new FrameLayout.LayoutParams(dp(14),dp(14),Gravity.CENTER));
+            LinearLayout.LayoutParams swLp=new LinearLayout.LayoutParams(dp(34),dp(34));
+            swLp.rightMargin=dp(Theme.SPACE_12);
+            row.addView(swatch,swLp);
+
+            LinearLayout copy=ui.col();
+            TextView title=ui.type(opt.label,Theme.T_BODY);
+            title.setTypeface(Theme.MEDIUM);
+            if(selected)title.setTextColor(Theme.ACCENT_TEXT);
+            copy.addView(title);
+            TextView detail=ui.type(opt.detail,Theme.T_CAPTION);
+            copy.addView(detail,margins(-1,-2,0,2,0,0));
+            row.addView(copy,WordUi.weight());
+
+            if(selected){
+                row.addView(ui.icon(R.drawable.ic_check,Theme.ACCENT_TEXT),new LinearLayout.LayoutParams(dp(20),dp(20)));
+            }
+            clickable(row,v->{
+                if(opt.id.equals(AppThemeStore.load(this).style))return;
+                applyGlobalTheme(AppThemeStore.load(this).withStyle(opt.id));
+            },.985f);
+            styleGroup.addView(row,WordUi.lp());
+        }
+        content.addView(styleGroup,WordUi.lp());
+
+        ui.section(content,"明暗模式",null);
+        LinearLayout nightGroup=ui.group();
+        int nightIdx=AppTheme.NIGHT_LIGHT.equals(current.nightMode)?1:(AppTheme.NIGHT_DARK.equals(current.nightMode)?2:0);
+        LinearLayout nightBox=ui.col();
+        nightBox.setPadding(dp(Theme.ROW_PAD),dp(14),dp(Theme.ROW_PAD),dp(Theme.ROW_PAD));
+        TextView nightTitle=ui.type("应用明暗策略",Theme.T_BODY);
+        nightTitle.setTypeface(Theme.MEDIUM);
+        nightBox.addView(nightTitle);
+        Segmented nightSeg=ui.segmented(new String[]{"跟随系统","始终浅色","始终深色"},nightIdx,idx->{
+            String next=idx==1?AppTheme.NIGHT_LIGHT:(idx==2?AppTheme.NIGHT_DARK:AppTheme.NIGHT_SYSTEM);
+            if(next.equals(AppThemeStore.load(this).nightMode))return;
+            applyGlobalTheme(AppThemeStore.load(this).withNightMode(next));
+        });
+        nightBox.addView(nightSeg,margins(-1,-2,0,Theme.SPACE_12,0,0));
+        nightGroup.addView(nightBox,WordUi.lp());
+        content.addView(nightGroup,WordUi.lp());
+        ui.note(content,"切换后会同步应用到主页、复习、设置、弹窗、图标及系统状态栏/导航栏。");
+
+        ui.section(content,"复习卡片外观",null);
+        LinearLayout cardGroup=ui.group();
+        LinearLayout cardRow=ui.item(cardGroup,0,"复习卡片外观",CardStyleStore.load(this).summary(),null,true,v->Motion.open(this,new Intent(this,CardStyleActivity.class)));
+        cardStyleSummary=subtitleView(cardRow);
+        content.addView(cardGroup,WordUi.lp());
+        ui.note(content,"自定义卡片背景（本地图片、渐变、纯色）与底部短句、纹样、图片在切换全局主题后会完整保留；默认纸面随当前风格与明暗自动适配。");
+
+        ui.gap(content,Theme.SPACE_16);
+        content.addView(ui.dangerTextButton("恢复默认主题",v->{
+            if(AppThemeStore.load(this).isDefault()){toast("当前已是默认主题");return;}
+            AppThemeStore.reset(this);
+            toast("已恢复默认外观与主题");
+            recreate();
+        }));
+    }
+
+    private void applyGlobalTheme(AppTheme next){
+        AppThemeStore.save(this,next);
+        recreate();
+    }
+
+    private static TextView subtitleView(LinearLayout row){
+        if(row==null)return null;
+        for(int i=0;i<row.getChildCount();i++){
+            View child=row.getChildAt(i);
+            if(child instanceof LinearLayout){
+                LinearLayout copy=(LinearLayout)child;
+                if(copy.getChildCount()>1&&copy.getChildAt(1) instanceof TextView){
+                    return (TextView)copy.getChildAt(1);
+                }
+            }
+        }
+        return null;
     }
 
     private String[] readIntervals(){
@@ -1560,8 +1673,7 @@ public class MainActivity extends ScreenActivity {
         Switch shuffle=ui.switchRow(cards,"打乱单词顺序",null,prefs.getBoolean("shuffleWords",false));
         Switch motion=ui.switchRow(cards,"界面动态效果","关闭后页面与列表的过渡立即呈现",prefs.getBoolean("motion",true));
         LinearLayout cardStyleRow=ui.item(cards,0,"复习卡片外观",CardStyleStore.load(this).summary(),null,true,v->Motion.open(this,new Intent(this,CardStyleActivity.class)));
-        LinearLayout cardStyleCopy=(LinearLayout)cardStyleRow.getChildAt(0);
-        cardStyleSummary=cardStyleCopy.getChildCount()>1?(TextView)cardStyleCopy.getChildAt(1):null;
+        cardStyleSummary=subtitleView(cardStyleRow);
         content.addView(cards,WordUi.lp());
         ui.note(content,"词性/义项练习可在任务详情里单独开始：正面英文，从多个词性释义中选择。");
 

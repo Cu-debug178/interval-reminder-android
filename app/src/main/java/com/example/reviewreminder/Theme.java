@@ -13,32 +13,77 @@ import android.view.View;
 import android.widget.TextView;
 
 /**
- * Design tokens for the "Paper & Ink" visual language.
+ * Centralized design tokens for the app's visual language.
  *
- * Warm paper background, near-black ink, one pine accent. Hierarchy comes from type weight,
- * size and spacing — not from borders or shadows. Every colour/size used by the UI lives here.
+ * Colour tokens default to Paper & Ink (light) and are updated atomically by {@link #apply(Context)}
+ * from {@link AppThemeStore} so every screen, card, sheet, button, icon, and system bar stays in
+ * sync across all curated visual styles and true application-level light/dark modes.
  */
 final class Theme {
-    // ── Colour ────────────────────────────────────────────────────────────────
-    static final int BG=0xFFF6F5F1;           // paper
-    static final int SURFACE=0xFFFFFFFF;      // raised sheet / grouped list
-    static final int SUNK=0xFFEFEEE9;         // inset fills: secondary buttons, segmented track, fields on paper
-    static final int HAIRLINE=0xFFE6E4DE;     // dividers, field outlines
-    static final int INK=0xFF1B2220;          // primary text
-    static final int INK_2=0xFF59625E;        // secondary text
-    static final int INK_3=0xFF959B97;        // tertiary text, placeholders, inactive icons
-    static final int PRIMARY=0xFF1F5A4C;      // pine — the only accent
-    static final int PRIMARY_PRESSED=0xFF184A3E;
-    static final int PRIMARY_SOFT=0xFFE4EEE9; // tonal fills, selected states
-    static final int PRIMARY_TINT=0xFF6E9C8F; // heatmap mid, progress track hints
-    static final int DANGER=0xFFB0503A;       // terracotta
-    static final int DANGER_SOFT=0xFFF6E8E3;
-    static final int WARN=0xFF8A5F17;
-    static final int WARN_SOFT=0xFFF7EEDB;
-    static final int SCRIM=0x66141A18;
+    // ── Colour (dynamically resolved per active AppTheme + light/dark mode) ───
+    static boolean DARK=false;
+    static int BG=0xFFF6F5F1;           // paper
+    static int SURFACE=0xFFFFFFFF;      // raised sheet / grouped list
+    static int SUNK=0xFFEFEEE9;         // inset fills: secondary buttons, segmented track, fields on paper
+    static int HAIRLINE=0xFFE6E4DE;     // dividers, field outlines
+    static int INK=0xFF1B2220;          // primary text
+    static int INK_2=0xFF525B57;        // secondary text
+    static int INK_3=0xFF6A726E;        // tertiary text, placeholders, inactive icons
+    static int PRIMARY=0xFF1F5A4C;      // pine — primary accent
+    static int PRIMARY_PRESSED=0xFF184A3E;
+    static int PRIMARY_SOFT=0xFFE4EEE9; // tonal fills, selected states
+    static int PRIMARY_TINT=0xFF6E9C8F; // heatmap mid, progress track hints
+    static int ACCENT_TEXT=0xFF1F5A4C;  // high-contrast accent ink for tonal pills, links, and text buttons
+    static int ON_PRIMARY=0xFFFFFFFF;   // text/icons on PRIMARY or DANGER fills
+    static int DANGER=0xFFA6442E;       // terracotta
+    static int DANGER_SOFT=0xFFF6E8E3;
+    static int WARN=0xFF8A5F17;
+    static int WARN_SOFT=0xFFF7EEDB;
+    static int SCRIM=0x66141A18;
+
+    /** Ripple colours: ink wash on light surfaces, light wash on dark/filled surfaces. */
+    static int RIPPLE_LIGHT=0x161B2220, RIPPLE_DARK=0x38FFFFFF, RIPPLE_ACCENT=0x241F5A4C;
 
     /** @deprecated aliases kept for older call sites. */
-    static final int MUTED=INK_3, BORDER=HAIRLINE;
+    static int MUTED=INK_3, BORDER=HAIRLINE;
+
+    static void apply(Context c) {
+        AppTheme theme = AppThemeStore.load(c);
+        boolean dark = theme.resolveDark(AppThemeStore.isSystemNight(c));
+        applyPalette(AppTheme.paletteFor(theme.style, dark));
+    }
+
+    static void applyPalette(AppTheme.Palette p) {
+        if (p == null) return;
+        DARK = p.dark;
+        BG = p.bg;
+        SURFACE = p.surface;
+        SUNK = p.sunk;
+        HAIRLINE = p.hairline;
+        INK = p.ink;
+        INK_2 = p.ink2;
+        INK_3 = p.ink3;
+        PRIMARY = p.primary;
+        PRIMARY_PRESSED = p.primaryPressed;
+        PRIMARY_SOFT = p.primarySoft;
+        PRIMARY_TINT = p.primaryTint;
+        ACCENT_TEXT = p.dark ? p.primaryTint : p.primary;
+        ON_PRIMARY = p.onPrimary;
+        DANGER = p.danger;
+        DANGER_SOFT = p.dangerSoft;
+        WARN = p.warn;
+        WARN_SOFT = p.warnSoft;
+        SCRIM = p.scrim;
+        RIPPLE_LIGHT = p.rippleLight;
+        RIPPLE_DARK = p.rippleDark;
+        RIPPLE_ACCENT = p.rippleAccent;
+        MUTED = INK_3;
+        BORDER = HAIRLINE;
+    }
+
+    static String signature(Context c) {
+        return AppThemeStore.signature(c);
+    }
 
     // ── Space (dp) ────────────────────────────────────────────────────────────
     static final int SPACE_2=2,SPACE_4=4,SPACE_6=6,SPACE_8=8,SPACE_12=12,SPACE_16=16,SPACE_20=20,SPACE_24=24,SPACE_32=32,SPACE_40=40,SPACE_48=48;
@@ -109,16 +154,13 @@ final class Theme {
         GradientDrawable d=new GradientDrawable();d.setColor(color);float r=dp(c,radiusDp);d.setCornerRadii(new float[]{r,r,r,r,0,0,0,0});return d;
     }
 
-    /** Field background: hairline at rest, pine outline when focused. */
+    /** Field background: hairline at rest, primary outline when focused. */
     static Drawable fieldBackground(Context c,int fill){
         StateListDrawable s=new StateListDrawable();
         s.addState(new int[]{android.R.attr.state_focused},shape(c,fill,RADIUS_FIELD,PRIMARY,1.5f));
         s.addState(new int[]{},shape(c,fill,RADIUS_FIELD,HAIRLINE,1));
         return s;
     }
-
-    /** Ripple colours: ink wash on light surfaces, white wash on filled pine/terracotta. */
-    static final int RIPPLE_LIGHT=0x161B2220, RIPPLE_DARK=0x38FFFFFF, RIPPLE_ACCENT=0x241F5A4C;
 
     static void applyRipple(View v,Drawable background){applyRipple(v,background,RIPPLE_LIGHT);}
 

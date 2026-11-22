@@ -55,8 +55,11 @@ public final class ReviewActivity extends ScreenActivity {
     private View cardView;
     private java.util.concurrent.Future<?> pendingAi;
 
-    // Session chrome (kept while cards change; rebuilt after the summary).
-    private boolean sessionChrome;
+    // Session chrome (kept while cards change; rebuilt after the summary or layout switch).
+    private boolean sessionChrome,builtImmersive;
+    private String builtProgressStyle=CardStyle.PROGRESS_LINE;
+    private int safeTop,safeBottom,safeLeft,safeRight;
+    private View immersiveTopChrome,immersiveBottomHost;
     private ProgressLine progress;
     private TextView counter,forgetCue;
     private ImageButton speakTop;
@@ -139,11 +142,14 @@ public final class ReviewActivity extends ScreenActivity {
 
     @Override protected void onResume(){
         super.onResume();
+        if(isFinishing())return;
         active=true;
         CardStyle latest=CardStyleStore.load(this);
         if(!latest.equals(cardStyle)){
+            boolean chromeChanged=latest.isImmersiveLayout()!=builtImmersive||!latest.progressStyle.equals(builtProgressStyle);
             cardStyle=latest;
-            if(sessionChrome&&session!=null&&!session.ended()&&!changing)show();
+            if(chromeChanged)sessionChrome=false;
+            if(session!=null&&!session.ended()&&!changing)show();
         }
     }
 
@@ -202,36 +208,90 @@ public final class ReviewActivity extends ScreenActivity {
 
     // ── Session page ──────────────────────────────────────────────────────────
 
-    /** Minimal top strip (counter · 🔊 · ⋯), hairline progress, and a pure full-stage paper card. */
+    /** Minimal top strip (本批 x/y · progress · 🔊 · ⋯) for classic framed mode, or full-bleed edge-to-edge deck for immersive mode. */
     private void buildSession(){
-        ui.startModal("",R.drawable.ic_ellipsis,"更多",v->more());
-        counter=ui.barTitle;
-        counter.setTextSize(Theme.CALLOUT_SIZE);
-        counter.setTypeface(Theme.MEDIUM);
-        counter.setTextColor(Theme.INK_2);
-        counter.setFontFeatureSettings("tnum");
+        builtImmersive=cardStyle.isImmersiveLayout();
+        builtProgressStyle=cardStyle.progressStyle;
+        immersiveTopChrome=null;
+        immersiveBottomHost=null;
 
-        // Quiet borderless speaker icon in the top bar — zero buttons on or beneath the card.
-        speakTop=ui.iconButton(R.drawable.ic_volume_2,"朗读单词",v->{
-            if(currentWord!=null)speak(currentWord.optString("english"),false);
-        });
-        speakTop.setImageTintList(ColorStateList.valueOf(Theme.INK_2));
-        if(ui.bar!=null&&ui.bar.getChildCount()>=2){
-            ui.bar.addView(speakTop,ui.bar.getChildCount()-1,new LinearLayout.LayoutParams(ui.dp(Theme.TOUCH),ui.dp(Theme.TOUCH)));
+        if(builtImmersive){
+            FrameLayout root=new FrameLayout(this);
+            root.setBackgroundColor(Theme.BG);
+            deck=new FrameLayout(this);
+            deck.setClipChildren(false);
+            root.addView(deck,new FrameLayout.LayoutParams(-1,-1));
+            root.setOnApplyWindowInsetsListener((v,insets)->{
+                int top=insets.getSystemWindowInsetTop();
+                if(android.os.Build.VERSION.SDK_INT>=28&&insets.getDisplayCutout()!=null){
+                    top=Math.max(top,insets.getDisplayCutout().getSafeInsetTop());
+                }
+                safeTop=top;
+                safeBottom=insets.getSystemWindowInsetBottom();
+                safeLeft=insets.getSystemWindowInsetLeft();
+                safeRight=insets.getSystemWindowInsetRight();
+                applyImmersiveInsets();
+                return insets;
+            });
+            setContentView(root);
+            root.requestApplyInsets();
+            progress=null;
+            counter=null;
+            speakTop=null;
+            Notice.setBottomOffset(this,28);
+        }else{
+            ui.startModal("",R.drawable.ic_ellipsis,"更多",v->more());
+            LinearLayout batchGroup=ui.row();
+            TextView batchLabel=ui.type("本批",Theme.T_CAPTION);
+            batchLabel.setTextColor(Theme.INK_3);
+            batchLabel.setTypeface(Theme.MEDIUM);
+            LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);
+            blp.rightMargin=ui.dp(Theme.SPACE_6);
+            batchGroup.addView(batchLabel,blp);
+
+            counter=ui.type("",Theme.T_CALLOUT);
+            counter.setTypeface(Theme.MEDIUM);
+            counter.setTextColor(Theme.INK_2);
+            counter.setFontFeatureSettings("tnum");
+            batchGroup.addView(counter,new LinearLayout.LayoutParams(-2,-2));
+
+            boolean isRing=CardStyle.PROGRESS_RING.equals(builtProgressStyle);
+            progress=new ProgressLine(this).style(builtProgressStyle).colors(Theme.PRIMARY,Theme.SUNK);
+            progress.setStep(0,session==null?1:session.total(),false);
+            if(isRing){
+                LinearLayout.LayoutParams rlp=new LinearLayout.LayoutParams(ui.dp(20),ui.dp(20));
+                rlp.leftMargin=ui.dp(Theme.SPACE_8);
+                batchGroup.addView(progress,rlp);
+            }
+            if(ui.bar!=null&&ui.bar.getChildCount()>=1){
+                ui.bar.removeViewAt(0);
+                LinearLayout.LayoutParams bgLp=new LinearLayout.LayoutParams(0,-2,1);
+                ui.bar.addView(batchGroup,0,bgLp);
+            }
+
+            // Quiet borderless speaker icon in the top bar (48dp touch target).
+            speakTop=ui.iconButton(R.drawable.ic_volume_2,"朗读单词",v->{
+                if(currentWord!=null)speak(currentWord.optString("english"),false);
+            });
+            speakTop.setImageTintList(ColorStateList.valueOf(Theme.INK_2));
+            if(ui.bar!=null&&ui.bar.getChildCount()>=2){
+                ui.bar.addView(speakTop,ui.bar.getChildCount()-1,new LinearLayout.LayoutParams(ui.dp(Theme.TOUCH),ui.dp(Theme.TOUCH)));
+            }
+
+            ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_2),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_20));
+            ui.pin(); // Explicitly hide footer for full-stage card.
+
+            if(!isRing){
+                ui.body.addView(progress,WordUi.lp());
+            }
+
+            deck=new FrameLayout(this);
+            deck.setClipChildren(false);
+            LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(-1,0,1);
+            dp.topMargin=ui.dp(isRing?Theme.SPACE_8:Theme.SPACE_16);
+            ui.body.addView(deck,dp);
+            Notice.setBottomOffset(this,20);
         }
-
-        ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_2),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_20));
-        ui.pin(); // Explicitly hide footer for full-screen immersive card.
-
-        progress=new ProgressLine(this);
-        progress.set(0,false);
-        ui.body.addView(progress,WordUi.lp());
-
-        deck=new FrameLayout(this);
-        deck.setClipChildren(false);
-        LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(-1,0,1);
-        dp.topMargin=ui.dp(Theme.SPACE_16);
-        ui.body.addView(deck,dp);
 
         forgetCue=ui.type("↓ 下滑标记忘记",Theme.T_CALLOUT);
         forgetCue.setTypeface(Theme.MEDIUM);
@@ -241,15 +301,40 @@ public final class ReviewActivity extends ScreenActivity {
 
         sessionChrome=true;
         enterFrom=0;
-        Notice.setBottomOffset(this,20);
         maybeShowFirstRunGuide();
+    }
+
+    private void applyImmersiveInsets(){
+        if(!builtImmersive)return;
+        int minTop=ui.dp(Theme.SPACE_8);
+        int topPad=safeTop+minTop;
+        int sideLeft=Math.max(safeLeft,ui.dp(Theme.SPACE_12));
+        int sideRight=Math.max(safeRight,ui.dp(Theme.SPACE_12));
+        if(immersiveTopChrome!=null){
+            immersiveTopChrome.setPadding(sideLeft,topPad,sideRight,ui.dp(Theme.SPACE_4));
+        }
+        if(immersiveBottomHost!=null){
+            immersiveBottomHost.setPadding(
+                Math.max(safeLeft,ui.dp(Theme.SPACE_20)),
+                0,
+                Math.max(safeRight,ui.dp(Theme.SPACE_20)),
+                safeBottom+ui.dp(Theme.SPACE_16)
+            );
+        }
+        if(forgetCue!=null&&forgetCue.getLayoutParams() instanceof FrameLayout.LayoutParams){
+            FrameLayout.LayoutParams cueLp=(FrameLayout.LayoutParams)forgetCue.getLayoutParams();
+            cueLp.topMargin=safeTop+ui.dp(Theme.TOP_BAR+Theme.SPACE_8);
+            forgetCue.setLayoutParams(cueLp);
+        }
     }
 
     /** Shown once on the very first flashcard session so the card itself stays completely text-free. */
     private void maybeShowFirstRunGuide(){
         if(gesturePromptShown||Store.prefs(this).getBoolean("reviewGestureHintSeen",false))return;
         gesturePromptShown=true;
-        ui.body.post(()->{
+        View anchor=deck!=null?deck:ui.body;
+        if(anchor==null)return;
+        anchor.post(()->{
             if(isFinishing()||isDestroyed())return;
             showGestureGuide(true);
         });
@@ -298,18 +383,24 @@ public final class ReviewActivity extends ScreenActivity {
         currentZh=zh;
         currentExample=word.optString("example");
 
-        counter.setText(counterText());
-        progress.set(session.answered()/(float)session.total(),!fresh);
+        View card=buildCard(word,zh);
+        if(counter!=null){
+            counter.setText(counterText());
+            counter.setContentDescription("本批第 "+(session.answered()+1)+" 张，共 "+session.total()+" 张");
+        }
+        if(progress!=null){
+            progress.setStep(session.answered(),session.total(),!fresh);
+        }
         updateSpeakVisibility();
 
-        View card=buildCard(word,zh);
         deck.removeAllViews();
         resetForgetCue();
         FrameLayout.LayoutParams cueLp=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
-        cueLp.topMargin=ui.dp(Theme.SPACE_12);
+        cueLp.topMargin=builtImmersive?(safeTop+ui.dp(Theme.TOP_BAR+Theme.SPACE_8)):ui.dp(Theme.SPACE_12);
         deck.addView(forgetCue,cueLp);
         deck.addView(card,new FrameLayout.LayoutParams(-1,-1));
         cardView=card;
+        if(builtImmersive)applyImmersiveInsets();
 
         Motion.enter(card,enterFrom);
         enterFrom=0;
@@ -343,21 +434,83 @@ public final class ReviewActivity extends ScreenActivity {
      */
     private View buildCard(JSONObject word,boolean zh){
         boolean nightMode=CardStyleStore.isNightMode(this);
+        boolean immersive=builtImmersive;
         int screenH=getResources().getDisplayMetrics().heightPixels;
         int screenW=getResources().getDisplayMetrics().widthPixels;
         float fontScale=getResources().getConfiguration().fontScale;
         boolean landscape=screenW>screenH;
         boolean compact=landscape||screenH<ui.dp(620)||fontScale>=1.25f;
 
-        CardSurfaceView card=new CardSurfaceView(this,24);
+        CardSurfaceView card=new CardSurfaceView(this,immersive?0:24);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        int minH=Math.min(ui.dp(420),Math.max(ui.dp(compact?220:300),screenH-ui.dp(compact?148:180)));
-        card.setMinimumHeight(minH);
+        if(!immersive){
+            int minH=Math.min(ui.dp(420),Math.max(ui.dp(compact?220:300),screenH-ui.dp(compact?148:180)));
+            card.setMinimumHeight(minH);
+        }
         int padH=ui.dp(compact?Theme.SPACE_20:Theme.SPACE_24);
         int padV=ui.dp(compact?Theme.SPACE_16:Theme.SPACE_24);
-        card.setPadding(padH,padV,padH,padV);
+        if(immersive)card.setPadding(0,0,0,0);
+        else card.setPadding(padH,padV,padH,padV);
         card.applyStyle(cardStyle,nightMode);
         CardSurfaceView.Palette palette=card.palette();
+
+        if(immersive){
+            WordUi.edgeToEdgeSystemBars(this,palette.darkSurface);
+            LinearLayout topChrome=ui.col();
+            LinearLayout topRow=ui.row();
+            topRow.setMinimumHeight(ui.dp(Theme.TOP_BAR));
+
+            LinearLayout batchBox=ui.row();
+            batchBox.setGravity(Gravity.CENTER_VERTICAL);
+            if(CardStyle.BG_IMAGE.equals(cardStyle.backgroundMode)){
+                batchBox.setBackground(Theme.shape(this,palette.chipFill,16));
+                batchBox.setPadding(ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_6),ui.dp(Theme.SPACE_12),ui.dp(Theme.SPACE_6));
+            }else{
+                batchBox.setPadding(ui.dp(Theme.SPACE_8),0,ui.dp(Theme.SPACE_8),0);
+            }
+            TextView batchLabel=ui.type("本批",Theme.T_CAPTION);
+            batchLabel.setTextColor(palette.inkMuted);
+            batchLabel.setTypeface(Theme.MEDIUM);
+            LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);
+            blp.rightMargin=ui.dp(Theme.SPACE_6);
+            batchBox.addView(batchLabel,blp);
+
+            counter=ui.type(counterText(),Theme.T_CALLOUT);
+            counter.setTypeface(Theme.MEDIUM);
+            counter.setTextColor(palette.ink);
+            counter.setFontFeatureSettings("tnum");
+            batchBox.addView(counter,new LinearLayout.LayoutParams(-2,-2));
+
+            boolean isRing=CardStyle.PROGRESS_RING.equals(builtProgressStyle);
+            progress=new ProgressLine(this).style(builtProgressStyle).colors(palette.accent,palette.hairline);
+            if(isRing){
+                LinearLayout.LayoutParams rlp=new LinearLayout.LayoutParams(ui.dp(20),ui.dp(20));
+                rlp.leftMargin=ui.dp(Theme.SPACE_8);
+                batchBox.addView(progress,rlp);
+            }
+            LinearLayout leftWrap=ui.row();
+            leftWrap.addView(batchBox,new LinearLayout.LayoutParams(-2,-2));
+            topRow.addView(leftWrap,WordUi.weight());
+
+            speakTop=cardActionIcon(R.drawable.ic_volume_2,"朗读单词",palette,v->{
+                if(currentWord!=null)speak(currentWord.optString("english"),false);
+            });
+            topRow.addView(speakTop,new LinearLayout.LayoutParams(ui.dp(Theme.TOUCH),ui.dp(Theme.TOUCH)));
+
+            ImageButton moreBtn=cardActionIcon(R.drawable.ic_ellipsis,"更多",palette,v->more());
+            topRow.addView(moreBtn,new LinearLayout.LayoutParams(ui.dp(Theme.TOUCH),ui.dp(Theme.TOUCH)));
+
+            topChrome.addView(topRow,WordUi.lp());
+            if(!isRing){
+                LinearLayout.LayoutParams plp=WordUi.lp();
+                plp.leftMargin=ui.dp(Theme.SPACE_8);
+                plp.rightMargin=ui.dp(Theme.SPACE_8);
+                plp.topMargin=ui.dp(Theme.SPACE_4);
+                topChrome.addView(progress,plp);
+            }
+            immersiveTopChrome=topChrome;
+            card.addView(topChrome,WordUi.lp());
+        }
 
         if(session.attemptsForCurrent()>0){
             TextView retryTag=ui.type("再看一次",Theme.T_OVERLINE);
@@ -369,7 +522,8 @@ public final class ReviewActivity extends ScreenActivity {
         LinearLayout content=ui.col();
         content.setGravity(Gravity.CENTER);
         int contentPadV=ui.dp(compact?Theme.SPACE_8:Theme.SPACE_16);
-        content.setPadding(0,contentPadV,0,contentPadV);
+        int contentPadH=immersive?padH:0;
+        content.setPadding(contentPadH,contentPadV,contentPadH,contentPadV);
 
         String frontText=zh?word.optString("chinese"):word.optString("english");
         TextView front=new TextView(this);
@@ -457,7 +611,7 @@ public final class ReviewActivity extends ScreenActivity {
         LinearLayout mastery=ui.row();
         mastery.setGravity(Gravity.CENTER);
         mastery.addView(new StageDots(this,5,level,false).ringNext(false).color(palette.dotActive).offColor(palette.dotInactive));
-        TextView masteryLabel=ui.type(Mastery.label(level),Theme.T_CAPTION);
+        TextView masteryLabel=ui.type("熟练度 "+level+"/5",Theme.T_CAPTION);
         masteryLabel.setTextColor(palette.inkMuted);
         LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-2,-2);
         mp.leftMargin=ui.dp(Theme.SPACE_8);
@@ -504,15 +658,42 @@ public final class ReviewActivity extends ScreenActivity {
         relationsRow=relStrip;
 
         card.addView(content,new LinearLayout.LayoutParams(-1,0,1));
-        CardSurfaceView.attachBottomSlot(this,card,cardStyle,palette,compact);
+        if(immersive){
+            LinearLayout bottomHost=ui.col();
+            CardSurfaceView.attachBottomSlot(this,bottomHost,cardStyle,palette,compact);
+            immersiveBottomHost=bottomHost;
+            card.addView(bottomHost,WordUi.lp());
+        }else{
+            CardSurfaceView.attachBottomSlot(this,card,cardStyle,palette,compact);
+        }
 
         int answerState=revealed?View.VISIBLE:View.INVISIBLE;
         hairline.setVisibility(answerState);
         back.setVisibility(answerState);
         sentence.setVisibility(currentExample.isEmpty()?View.GONE:answerState);
         masteryRow.setVisibility(answerState);
-        bindCard(card,palette.ripple);
+        bindCard(card,palette.ripple,immersive?0:24);
         return card;
+    }
+
+    /** 48dp accessible icon button integrated directly into immersive card chrome without conflicting with card gestures. */
+    private ImageButton cardActionIcon(int drawableRes,String description,CardSurfaceView.Palette palette,View.OnClickListener click){
+        ImageButton b=new ImageButton(this);
+        b.setImageResource(drawableRes);
+        b.setImageTintList(ColorStateList.valueOf(palette.ink));
+        b.setScaleType(ImageView.ScaleType.CENTER);
+        b.setContentDescription(description);
+        b.setMinimumWidth(ui.dp(Theme.TOUCH));
+        b.setMinimumHeight(ui.dp(Theme.TOUCH));
+        if(CardStyle.BG_IMAGE.equals(cardStyle.backgroundMode)){
+            Theme.applyRipple(b,Theme.oval(palette.chipFill),palette.ripple);
+        }else{
+            Theme.applyBorderlessRipple(b,palette.ripple);
+        }
+        b.setOnClickListener(click);
+        b.setOnLongClickListener(v->true);
+        Motion.press(b,.90f);
+        return b;
     }
 
     /**
@@ -521,11 +702,11 @@ public final class ReviewActivity extends ScreenActivity {
      *   - Swipe down marks “忘记” (with finger-follow translation, live terracotta cue & haptic)
      *   - Long-press opens word editor
      */
-    private void bindCard(View card,int rippleColor){
+    private void bindCard(View card,int rippleColor,float cornerRadiusDp){
         card.setClickable(true);
         card.setFocusable(true);
         card.setLongClickable(false);
-        card.setForeground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(rippleColor),null,Theme.shape(this,Color.WHITE,24)));
+        card.setForeground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(rippleColor),null,Theme.shape(this,Color.WHITE,cornerRadiusDp)));
         final int slop=ViewConfiguration.get(this).getScaledTouchSlop();
         final int timeout=ViewConfiguration.getLongPressTimeout();
         final float threshold=ui.dp(76);
@@ -874,6 +1055,9 @@ public final class ReviewActivity extends ScreenActivity {
 
     private void summary(){
         sessionChrome=false;
+        builtImmersive=false;
+        immersiveTopChrome=null;
+        immersiveBottomHost=null;
         cardView=null;
         speakTop=null;
         ui.startModal(practice?"任意复习":taskTitle);

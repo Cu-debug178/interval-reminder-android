@@ -101,6 +101,27 @@ public final class CardStyleActivity extends ScreenActivity {
 
         renderPreview();
 
+        // ── Layout & progress style section ───────────────────────────────────
+        ui.section(ui.body, "卡片布局", null);
+        Segmented layoutSeg = ui.segmented(new String[]{"经典留边", "全屏沉浸"},
+            draft.isImmersiveLayout() ? 1 : 0, index -> {
+                draft = draft.withLayoutMode(index == 1 ? CardStyle.LAYOUT_IMMERSIVE : CardStyle.LAYOUT_CLASSIC);
+                renderPreview();
+            });
+        ui.body.addView(layoutSeg, WordUi.lp());
+        ui.note(ui.body, "经典留边保留既有卡片留白；全屏沉浸铺满屏幕并自动避让状态栏与手势导航条。");
+
+        ui.section(ui.body, "批次进度样式", null);
+        int progIdx = progressStyleIndex(draft.progressStyle);
+        Segmented progSeg = ui.segmented(new String[]{"克制细线", "分段刻度", "紧凑环形"}, progIdx, index -> {
+            String next = index == 1 ? CardStyle.PROGRESS_SEGMENTS
+                : (index == 2 ? CardStyle.PROGRESS_RING : CardStyle.PROGRESS_LINE);
+            draft = draft.withProgressStyle(next);
+            renderPreview();
+        });
+        ui.body.addView(progSeg, WordUi.lp());
+        ui.note(ui.body, "顶部仅表示本批复习进度（x / y），与翻面后单词熟练度（0–5）分开呈现。");
+
         // ── Background section ────────────────────────────────────────────────
         ui.section(ui.body, "卡片背景", null);
         int bgIdx = bgModeIndex(draft.backgroundMode);
@@ -176,18 +197,71 @@ public final class CardStyleActivity extends ScreenActivity {
         if (previewHost == null) return;
         previewHost.removeAllViews();
 
-        LinearLayout stage = ui.col();
-        stage.setPadding(ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_12));
-        stage.setBackground(Theme.shape(this, previewDark ? CardSurfaceView.DARK_PAGE_BG : Theme.SUNK, 20));
+        boolean immersive = draft.isImmersiveLayout();
+        boolean isRing = CardStyle.PROGRESS_RING.equals(draft.progressStyle);
 
-        CardSurfaceView card = new CardSurfaceView(this, 20);
+        LinearLayout stage = ui.col();
+        int stagePad = ui.dp(immersive ? 0 : Theme.SPACE_12);
+        stage.setPadding(stagePad, stagePad, stagePad, stagePad);
+        stage.setBackground(Theme.shape(this, previewDark ? CardSurfaceView.DARK_PAGE_BG : Theme.SUNK, 20));
+        if (immersive) stage.setClipToOutline(true);
+
+        CardSurfaceView card = new CardSurfaceView(this, immersive ? 20 : 18);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setPadding(ui.dp(Theme.SPACE_20), ui.dp(Theme.SPACE_20), ui.dp(Theme.SPACE_20), ui.dp(Theme.SPACE_16));
-        card.setMinimumHeight(ui.dp(236));
+        card.setPadding(ui.dp(Theme.SPACE_16), ui.dp(Theme.SPACE_12), ui.dp(Theme.SPACE_16), ui.dp(Theme.SPACE_16));
+        card.setMinimumHeight(ui.dp(256));
         card.applyStyle(draft, previewDark);
 
         CardSurfaceView.Palette palette = card.palette();
         boolean compact = getResources().getConfiguration().fontScale >= 1.25f;
+
+        // Preview header bar showing batch progress ("本批 3 / 12") + selected indicator + speaker/more icons.
+        LinearLayout previewTop = ui.row();
+        previewTop.setGravity(Gravity.CENTER_VERTICAL);
+        TextView batchTag = ui.type("本批", Theme.T_CAPTION);
+        batchTag.setTextColor(immersive ? palette.inkMuted : (previewDark ? 0xFF98A19D : Theme.INK_3));
+        LinearLayout.LayoutParams btp = new LinearLayout.LayoutParams(-2, -2);
+        btp.rightMargin = ui.dp(4);
+        previewTop.addView(batchTag, btp);
+
+        TextView batchNum = ui.type("3 / 12", Theme.T_CAPTION);
+        batchNum.setTypeface(Theme.MEDIUM);
+        batchNum.setTextColor(immersive ? palette.ink : (previewDark ? 0xFFF1F4F2 : Theme.INK_2));
+        previewTop.addView(batchNum, new LinearLayout.LayoutParams(-2, -2));
+
+        ProgressLine previewProg = new ProgressLine(this)
+            .style(draft.progressStyle)
+            .colors(immersive ? palette.accent : (previewDark ? 0xFF74B8A4 : Theme.PRIMARY),
+                immersive ? palette.hairline : (previewDark ? 0xFF2B3532 : Theme.HAIRLINE));
+        previewProg.setStep(3, 12, false);
+        if (isRing) {
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ui.dp(18), ui.dp(18));
+            rlp.leftMargin = ui.dp(6);
+            previewTop.addView(previewProg, rlp);
+        }
+        previewTop.addView(new View(this), WordUi.weight());
+
+        int iconTint = immersive ? palette.inkSecondary : (previewDark ? 0xFFC5CBC7 : Theme.INK_2);
+        ImageView spIcon = ui.icon(R.drawable.ic_volume_2, iconTint);
+        LinearLayout.LayoutParams sip = new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16));
+        sip.rightMargin = ui.dp(12);
+        previewTop.addView(spIcon, sip);
+        previewTop.addView(ui.icon(R.drawable.ic_ellipsis, iconTint), new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16)));
+
+        if (immersive) {
+            card.addView(previewTop, WordUi.lp());
+            if (!isRing) {
+                card.addView(previewProg, ui.lpMargin(Theme.SPACE_6, Theme.SPACE_8));
+            }
+        } else {
+            LinearLayout classicBar = ui.col();
+            classicBar.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(Theme.SPACE_8));
+            classicBar.addView(previewTop, WordUi.lp());
+            if (!isRing) {
+                classicBar.addView(previewProg, ui.lpMargin(Theme.SPACE_6, 0));
+            }
+            stage.addView(classicBar, WordUi.lp());
+        }
 
         LinearLayout center = ui.col();
         center.setGravity(Gravity.CENTER);
@@ -238,7 +312,7 @@ public final class CardStyleActivity extends ScreenActivity {
             LinearLayout mastery = ui.row();
             mastery.setGravity(Gravity.CENTER);
             mastery.addView(new StageDots(this, 5, 3, false).ringNext(false).color(palette.dotActive).offColor(palette.dotInactive));
-            TextView ml = ui.type("熟悉", Theme.T_CAPTION);
+            TextView ml = ui.type("熟练度 3/5", Theme.T_CAPTION);
             ml.setTextColor(palette.inkMuted);
             LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-2, -2);
             mlp.leftMargin = ui.dp(6);
@@ -657,6 +731,12 @@ public final class CardStyleActivity extends ScreenActivity {
         cleanupUnsavedSessionImages();
         worker.shutdownNow();
         super.onDestroy();
+    }
+
+    private static int progressStyleIndex(String style) {
+        if (CardStyle.PROGRESS_SEGMENTS.equals(style)) return 1;
+        if (CardStyle.PROGRESS_RING.equals(style)) return 2;
+        return 0;
     }
 
     private static int bgModeIndex(String mode) {

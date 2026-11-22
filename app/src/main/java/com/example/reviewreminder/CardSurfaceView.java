@@ -32,23 +32,24 @@ final class CardSurfaceView extends LinearLayout {
                 inkSecondary = photoBackground ? 0xFFE6E4DE : 0xFFC5CBC7;
                 inkMuted = photoBackground ? 0xFFD0D4D1 : 0xFF98A19D;
                 hairline = photoBackground ? 0x4DFFFFFF : 0x33F6F5F1;
-                chipFill = photoBackground ? 0x45121715 : 0xFF2B3532;
+                chipFill = photoBackground ? 0x52121715 : 0xFF2B3532;
                 chipInk = 0xFFE9ECEA;
-                accent = 0xFF9FD3BF;
+                accent = Theme.DARK ? Theme.PRIMARY_TINT : 0xFF9FD3BF;
                 ripple = 0x26FFFFFF;
-                dotActive = 0xFF9FD3BF;
+                dotActive = Theme.DARK ? Theme.PRIMARY_TINT : 0xFF9FD3BF;
                 dotInactive = 0x44FFFFFF;
             } else {
-                ink = Theme.INK;
-                inkSecondary = Theme.INK_2;
-                inkMuted = Theme.INK_3;
-                hairline = Theme.HAIRLINE;
-                chipFill = Theme.SUNK;
-                chipInk = Theme.INK_2;
-                accent = Theme.PRIMARY;
-                ripple = Theme.RIPPLE_LIGHT;
-                dotActive = Theme.PRIMARY;
-                dotInactive = Theme.HAIRLINE;
+                // Keep dark ink even if the global app is in dark mode while the user selected a light card preset.
+                ink = Theme.DARK ? 0xFF1B2220 : Theme.INK;
+                inkSecondary = Theme.DARK ? 0xFF525B57 : Theme.INK_2;
+                inkMuted = Theme.DARK ? 0xFF6A726E : Theme.INK_3;
+                hairline = Theme.DARK ? 0xFFDCDAD3 : Theme.HAIRLINE;
+                chipFill = Theme.DARK ? 0xFFE8E7E1 : Theme.SUNK;
+                chipInk = Theme.DARK ? 0xFF4C5551 : Theme.INK_2;
+                accent = Theme.DARK ? 0xFF1F5A4C : Theme.ACCENT_TEXT;
+                ripple = 0x161B2220;
+                dotActive = Theme.DARK ? 0xFF1F5A4C : Theme.PRIMARY;
+                dotInactive = Theme.DARK ? 0xFFD2D0C8 : Theme.HAIRLINE;
             }
         }
     }
@@ -94,23 +95,33 @@ final class CardSurfaceView extends LinearLayout {
         super.onSizeChanged(w, h, oldw, oldh);
         bounds.set(0, 0, w, h);
         clipPath.reset();
-        clipPath.addRoundRect(bounds, radiusPx, radiusPx, Path.Direction.CW);
+        if (radiusPx > 0f) {
+            clipPath.addRoundRect(bounds, radiusPx, radiusPx, Path.Direction.CW);
+        }
     }
 
     @Override protected void onDraw(Canvas canvas) {
         if (getWidth() <= 0 || getHeight() <= 0) return;
-        int save = canvas.save();
-        canvas.clipPath(clipPath);
-        drawBackdrop(canvas, getWidth(), getHeight());
-        canvas.restoreToCount(save);
+        if (radiusPx > 0f) {
+            int save = canvas.save();
+            canvas.clipPath(clipPath);
+            drawBackdrop(canvas, getWidth(), getHeight());
+            canvas.restoreToCount(save);
+        } else {
+            drawBackdrop(canvas, getWidth(), getHeight());
+        }
         super.onDraw(canvas);
     }
 
     @Override protected void dispatchDraw(Canvas canvas) {
-        int save = canvas.save();
-        canvas.clipPath(clipPath);
-        super.dispatchDraw(canvas);
-        canvas.restoreToCount(save);
+        if (radiusPx > 0f) {
+            int save = canvas.save();
+            canvas.clipPath(clipPath);
+            super.dispatchDraw(canvas);
+            canvas.restoreToCount(save);
+        } else {
+            super.dispatchDraw(canvas);
+        }
     }
 
     private void drawBackdrop(Canvas canvas, int w, int h) {
@@ -143,7 +154,14 @@ final class CardSurfaceView extends LinearLayout {
             return;
         }
 
-        paint.setColor(darkMode ? DARK_PAPER_SURFACE : Theme.SURFACE);
+        // Default paper respects the active global AppTheme visual style (paper_ink / soft_eye / slate_mist).
+        int defaultColor;
+        if (darkMode) {
+            defaultColor = Theme.DARK ? Theme.SURFACE : DARK_PAPER_SURFACE;
+        } else {
+            defaultColor = Theme.DARK ? 0xFFFFFFFF : Theme.SURFACE;
+        }
+        paint.setColor(defaultColor);
         canvas.drawRect(0, 0, w, h, paint);
     }
 

@@ -108,11 +108,31 @@ final class WordUi {
     void systemBars(){systemBars(a);}
 
     static void systemBars(Activity a){
-        a.getWindow().setStatusBarColor(Theme.BG);
-        a.getWindow().setNavigationBarColor(Theme.BG);
-        int flags=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-        if(android.os.Build.VERSION.SDK_INT>=26)flags|=0x10;
-        a.getWindow().getDecorView().setSystemUiVisibility(flags);
+        android.view.Window w=a.getWindow();
+        w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        w.setStatusBarColor(Theme.BG);
+        w.setNavigationBarColor(Theme.BG);
+        int flags=Theme.DARK?0:(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|(android.os.Build.VERSION.SDK_INT>=26?0x10:0));
+        w.getDecorView().setSystemUiVisibility(flags);
+    }
+
+    /** Edge-to-edge transparent system bars with icon contrast matched to the underlying surface. */
+    static void edgeToEdgeSystemBars(Activity a,boolean darkSurface){
+        android.view.Window w=a.getWindow();
+        w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        w.setStatusBarColor(Color.TRANSPARENT);
+        w.setNavigationBarColor(Color.TRANSPARENT);
+        if(android.os.Build.VERSION.SDK_INT>=29){
+            w.setNavigationBarContrastEnforced(false);
+        }
+        int flags=View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            |View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            |View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+        if(!darkSurface){
+            flags|=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if(android.os.Build.VERSION.SDK_INT>=26)flags|=0x10;
+        }
+        w.getDecorView().setSystemUiVisibility(flags);
     }
 
     LinearLayout pageChrome(String title){return pageChrome(title,R.drawable.ic_arrow_left,"返回",0,null,null);}
@@ -296,25 +316,25 @@ final class WordUi {
     /** Backward-compatible: primary=true → filled; false → quiet secondary. */
     Button button(String title,boolean primary,View.OnClickListener action){return primary?primaryButton(title,action):secondaryButton(title,action);}
 
-    Button primaryButton(String title,View.OnClickListener action){return styled(title,Theme.PRIMARY,Color.WHITE,Theme.RIPPLE_DARK,0,action);}
-    Button primaryButton(String title,int icon,View.OnClickListener action){return styled(title,Theme.PRIMARY,Color.WHITE,Theme.RIPPLE_DARK,icon,action);}
+    Button primaryButton(String title,View.OnClickListener action){return styled(title,Theme.PRIMARY,Theme.ON_PRIMARY,Theme.RIPPLE_DARK,0,action);}
+    Button primaryButton(String title,int icon,View.OnClickListener action){return styled(title,Theme.PRIMARY,Theme.ON_PRIMARY,Theme.RIPPLE_DARK,icon,action);}
     /** Quiet filled button on paper (sunk fill, ink text). */
     Button secondaryButton(String title,View.OnClickListener action){return styled(title,Theme.SUNK,Theme.INK,Theme.RIPPLE_LIGHT,0,action);}
     Button secondaryButton(String title,int icon,View.OnClickListener action){return styled(title,Theme.SUNK,Theme.INK,Theme.RIPPLE_LIGHT,icon,action);}
-    /** Pine-tinted button for positive secondary actions. */
-    Button tonalButton(String title,int icon,View.OnClickListener action){return styled(title,Theme.PRIMARY_SOFT,Theme.PRIMARY,Theme.RIPPLE_ACCENT,icon,action);}
-    /** Outline button for use on white surfaces. */
+    /** Accent-tinted button for positive secondary actions. */
+    Button tonalButton(String title,int icon,View.OnClickListener action){return styled(title,Theme.PRIMARY_SOFT,Theme.ACCENT_TEXT,Theme.RIPPLE_ACCENT,icon,action);}
+    /** Outline button for use on card surfaces. */
     Button ghostButton(String title,View.OnClickListener action){
         Button b=styled(title,Theme.SURFACE,Theme.INK,Theme.RIPPLE_LIGHT,0,action);
         Theme.applyRipple(b,Theme.shape(a,Theme.SURFACE,Theme.RADIUS_BUTTON,Theme.HAIRLINE,1),Theme.RIPPLE_LIGHT);
         return b;
     }
     /** Destructive confirmation (filled terracotta). */
-    Button dangerButton(String title,View.OnClickListener action){return styled(title,Theme.DANGER,Color.WHITE,Theme.RIPPLE_DARK,0,action);}
+    Button dangerButton(String title,View.OnClickListener action){return styled(title,Theme.DANGER,Theme.ON_PRIMARY,Theme.RIPPLE_DARK,0,action);}
 
     Button textButton(String title,View.OnClickListener action){
         Button b=new Btn(a);
-        b.setText(title);b.setAllCaps(false);b.setTextSize(Theme.BODY_SIZE);b.setTextColor(Theme.PRIMARY);b.setTypeface(Theme.MEDIUM);
+        b.setText(title);b.setAllCaps(false);b.setTextSize(Theme.BODY_SIZE);b.setTextColor(Theme.ACCENT_TEXT);b.setTypeface(Theme.MEDIUM);
         b.setMinHeight(dp(44));b.setMinimumHeight(dp(44));b.setMinWidth(0);b.setMinimumWidth(0);
         b.setPadding(dp(Theme.SPACE_12),0,dp(Theme.SPACE_12),0);
         b.setBackground(Theme.shape(a,Color.TRANSPARENT,Theme.RADIUS_CHIP));Theme.applyRipple(b,b.getBackground(),Theme.RIPPLE_ACCENT);
@@ -325,7 +345,7 @@ final class WordUi {
 
     /** Compact tonal pill (36dp) for inline row actions like “任意复习”. */
     Button pill(String title,int icon,View.OnClickListener action){
-        Button b=styled(title,Theme.PRIMARY_SOFT,Theme.PRIMARY,Theme.RIPPLE_ACCENT,icon,action);
+        Button b=styled(title,Theme.PRIMARY_SOFT,Theme.ACCENT_TEXT,Theme.RIPPLE_ACCENT,icon,action);
         b.setTextSize(Theme.CALLOUT_SIZE);b.setMinHeight(dp(Theme.BUTTON_SMALL));b.setMinimumHeight(dp(Theme.BUTTON_SMALL));
         b.setPadding(dp(Theme.SPACE_12),0,dp(icon==0?Theme.SPACE_12:Theme.SPACE_16),0);
         Theme.applyRipple(b,Theme.shape(a,Theme.PRIMARY_SOFT,Theme.BUTTON_SMALL/2f),Theme.RIPPLE_ACCENT);
