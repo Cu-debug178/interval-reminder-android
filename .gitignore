@@ -11,6 +11,8 @@
 *.apk.idsig
 *.keystore
 *.jks
+# Intentional exception: published 温故 app keystore only. See signing/README.md.
+!signing/release.keystore
 
 # Generated device QA screenshots and logs
 /tests/output/

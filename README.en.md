@@ -63,7 +63,7 @@ The APK is signed with a local development key. **Never commit `build/release.ke
 
 ## Download APK
 
-Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases). The current app version is 0.9.0 (versionCode 18) and the package name is still `com.example.reviewreminder`, so the same signing key can overlay-install it. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
+Android APKs and SHA-256 checksums are available under [GitHub Releases](https://github.com/Cu-debug178/interval-reminder-android/releases). The current app version is 0.9.1 (versionCode 19) and the package name is still `com.example.reviewreminder`, so the same signing key can overlay-install it. The APK is signed with a local key; do not install it over another build with the same package name but a different signing certificate. Future upgrades must use the same signing key.
 
 ## Build Locally
 
