@@ -1386,6 +1386,45 @@ public class MainActivity extends ScreenActivity {
 
     private void appearanceSettings(){
         AppTheme current=AppThemeStore.load(this);
+        CardStyle currentCard=CardStyleStore.load(this);
+        String activePreset=AppTheme.matchingPreset(current,currentCard);
+
+        ui.section(content,"完整设计预设",activePreset.isEmpty()?"自定义组合":null);
+        LinearLayout presetGroup=ui.group();
+        for(AppTheme.DesignPreset preset:AppTheme.PRESETS){
+            boolean selected=preset.id.equals(activePreset);
+            ui.divide(presetGroup,Theme.ROW_PAD);
+            LinearLayout row=ui.row();
+            row.setMinimumHeight(dp(68));
+            row.setPadding(dp(Theme.ROW_PAD),dp(Theme.SPACE_12),dp(Theme.ROW_PAD),dp(Theme.SPACE_12));
+
+            AppTheme.StyleOption styleOpt=AppTheme.findStyle(preset.styleId);
+            int bgHex=Theme.DARK?styleOpt.darkPreviewBg:styleOpt.lightPreviewBg;
+            int acHex=Theme.DARK?styleOpt.darkPreviewAccent:styleOpt.lightPreviewAccent;
+            row.addView(presetGlyph(preset.layoutMode,bgHex,acHex),margins(dp2(38),dp2(38),0,0,Theme.SPACE_12,0));
+
+            LinearLayout copy=ui.col();
+            TextView title=ui.type(preset.label,Theme.T_BODY);
+            title.setTypeface(Theme.MEDIUM);
+            if(selected)title.setTextColor(Theme.ACCENT_TEXT);
+            copy.addView(title);
+            TextView detail=ui.type(preset.summary,Theme.T_CAPTION);
+            copy.addView(detail,margins(-1,-2,0,2,0,0));
+            row.addView(copy,WordUi.weight());
+
+            if(selected){
+                row.addView(ui.icon(R.drawable.ic_check,Theme.ACCENT_TEXT),new LinearLayout.LayoutParams(dp(20),dp(20)));
+            }
+            clickable(row,v->{
+                AppTheme nextTheme=AppThemeStore.load(this).applyPreset(preset.id);
+                CardStyle nextCard=AppTheme.applyPresetToCard(CardStyleStore.load(this),preset.id);
+                CardStyleStore.save(this,nextCard);
+                applyGlobalTheme(nextTheme);
+            },.985f);
+            presetGroup.addView(row,WordUi.lp());
+        }
+        content.addView(presetGroup,WordUi.lp());
+        ui.note(content,"一键切换完整视觉风格、卡片布局与进度样式；仅更新外观偏好，不会重置学习记录、自定义卡片图片/短句/纹样或语音设置。");
 
         ui.section(content,"视觉风格",null);
         LinearLayout styleGroup=ui.group();
@@ -1465,6 +1504,43 @@ public class MainActivity extends ScreenActivity {
     private void applyGlobalTheme(AppTheme next){
         AppThemeStore.save(this,next);
         recreate();
+    }
+
+    /** Compact architectural thumbnail distinguishing classic framed, 3-layer stacked, and full-bleed presets. */
+    private View presetGlyph(String layoutMode,int bgHex,int accentHex){
+        FrameLayout box=new FrameLayout(this);
+        box.setBackground(Theme.shape(this,bgHex,10,Theme.HAIRLINE,1));
+        int surfaceHex=Theme.DARK?0xFF28312D:0xFFFFFFFF;
+        if(CardStyle.LAYOUT_STACKED.equals(layoutMode)){
+            View back=new View(this);
+            back.setBackground(Theme.shape(this,Theme.alpha(accentHex,.28f),5));
+            FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(dp(20),dp(22),Gravity.CENTER);
+            bp.topMargin=dp(4);
+            box.addView(back,bp);
+            View top=new View(this);
+            top.setBackground(Theme.shape(this,surfaceHex,5,accentHex,1.2f));
+            FrameLayout.LayoutParams tp=new FrameLayout.LayoutParams(dp(22),dp(22),Gravity.CENTER);
+            tp.bottomMargin=dp(3);
+            box.addView(top,tp);
+        }else if(CardStyle.LAYOUT_IMMERSIVE.equals(layoutMode)){
+            View full=new View(this);
+            full.setBackground(Theme.shape(this,Theme.alpha(accentHex,.24f),8));
+            box.addView(full,new FrameLayout.LayoutParams(-1,-1));
+            View bar=new View(this);
+            bar.setBackground(Theme.oval(accentHex));
+            FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(dp(9),dp(9),Gravity.TOP|Gravity.START);
+            bp.leftMargin=dp(6);bp.topMargin=dp(6);
+            box.addView(bar,bp);
+        }else{
+            View card=new View(this);
+            card.setBackground(Theme.shape(this,surfaceHex,6,Theme.HAIRLINE,1));
+            FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(dp(24),dp(24),Gravity.CENTER);
+            box.addView(card,cp);
+            View dot=new View(this);
+            dot.setBackground(Theme.oval(accentHex));
+            box.addView(dot,new FrameLayout.LayoutParams(dp(8),dp(8),Gravity.CENTER));
+        }
+        return box;
     }
 
     private static TextView subtitleView(LinearLayout row){

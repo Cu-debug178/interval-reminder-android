@@ -12,6 +12,7 @@ public final class ReviewSession {
     public int current(){if(ended())throw new IllegalStateException("Session finished");return queue.get(position);}
     public int answered(){return position;}
     public int total(){return queue.size();}
+    public int remaining(){return Math.max(0,queue.size()-position);}
     public int remembered(){return remembered;}
     public int repeats(){return repeats;}
     public int attemptsForCurrent(){return attempts[current()];}

@@ -56,10 +56,13 @@ public final class ReviewActivity extends ScreenActivity {
     private java.util.concurrent.Future<?> pendingAi;
 
     // Session chrome (kept while cards change; rebuilt after the summary or layout switch).
-    private boolean sessionChrome,builtImmersive;
+    private boolean sessionChrome,builtImmersive,builtStacked;
     private String builtProgressStyle=CardStyle.PROGRESS_LINE;
     private int safeTop,safeBottom,safeLeft,safeRight;
     private View immersiveTopChrome,immersiveBottomHost;
+    private View stackLayer1,stackLayer2;
+    private TextView rememberStamp,forgetStamp;
+    private Button stackForgetBtn,stackRememberBtn;
     private ProgressLine progress;
     private TextView counter,forgetCue;
     private ImageButton speakTop;
@@ -146,7 +149,9 @@ public final class ReviewActivity extends ScreenActivity {
         active=true;
         CardStyle latest=CardStyleStore.load(this);
         if(!latest.equals(cardStyle)){
-            boolean chromeChanged=latest.isImmersiveLayout()!=builtImmersive||!latest.progressStyle.equals(builtProgressStyle);
+            boolean chromeChanged=latest.isImmersiveLayout()!=builtImmersive
+                ||latest.isStackedLayout()!=builtStacked
+                ||!latest.progressStyle.equals(builtProgressStyle);
             cardStyle=latest;
             if(chromeChanged)sessionChrome=false;
             if(session!=null&&!session.ended()&&!changing)show();
@@ -160,6 +165,7 @@ public final class ReviewActivity extends ScreenActivity {
     }
 
     @Override protected void onDestroy(){
+        if(cardView!=null)cardView.animate().cancel();
         AiClient.cancel(pendingAi);
         if(speech!=null)speech.shutdown();
         interaction.release();
@@ -208,12 +214,19 @@ public final class ReviewActivity extends ScreenActivity {
 
     // ── Session page ──────────────────────────────────────────────────────────
 
-    /** Minimal top strip (本批 x/y · progress · 🔊 · ⋯) for classic framed mode, or full-bleed edge-to-edge deck for immersive mode. */
+    /** Minimal top strip (本批 x/y · progress · 🔊 · ⋯) for classic/stacked mode, or full-bleed edge-to-edge deck for immersive mode. */
     private void buildSession(){
         builtImmersive=cardStyle.isImmersiveLayout();
+        builtStacked=cardStyle.isStackedLayout();
         builtProgressStyle=cardStyle.progressStyle;
         immersiveTopChrome=null;
         immersiveBottomHost=null;
+        stackLayer1=null;
+        stackLayer2=null;
+        rememberStamp=null;
+        forgetStamp=null;
+        stackForgetBtn=null;
+        stackRememberBtn=null;
 
         if(builtImmersive){
             FrameLayout root=new FrameLayout(this);
@@ -278,8 +291,20 @@ public final class ReviewActivity extends ScreenActivity {
                 ui.bar.addView(speakTop,ui.bar.getChildCount()-1,new LinearLayout.LayoutParams(ui.dp(Theme.TOUCH),ui.dp(Theme.TOUCH)));
             }
 
-            ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_2),ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_20));
-            ui.pin(); // Explicitly hide footer for full-stage card.
+            ui.body.setPadding(ui.dp(Theme.PAGE_PAD),ui.dp(Theme.SPACE_2),ui.dp(Theme.PAGE_PAD),ui.dp(builtStacked?Theme.SPACE_16:Theme.SPACE_20));
+            if(builtStacked){
+                stackForgetBtn=ui.secondaryButton("忘记",v->answer(false,session.answered(),v,false));
+                stackForgetBtn.setTextColor(Theme.DANGER);
+                stackForgetBtn.setContentDescription("标记忘记");
+                Theme.applyRipple(stackForgetBtn,Theme.shape(this,Theme.DANGER_SOFT,Theme.RADIUS_BUTTON),0x24B0503A);
+                stackRememberBtn=ui.primaryButton("记得",v->answer(true,session.answered(),v,false));
+                stackRememberBtn.setContentDescription("标记记得");
+                ui.pinPair(stackForgetBtn,stackRememberBtn);
+                Notice.setBottomOffset(this,Theme.BUTTON_HEIGHT+Theme.SPACE_24);
+            }else{
+                ui.pin(); // Explicitly hide footer for full-stage classic card.
+                Notice.setBottomOffset(this,20);
+            }
 
             if(!isRing){
                 ui.body.addView(progress,WordUi.lp());
@@ -287,10 +312,11 @@ public final class ReviewActivity extends ScreenActivity {
 
             deck=new FrameLayout(this);
             deck.setClipChildren(false);
+            deck.setClipToPadding(false);
             LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(-1,0,1);
             dp.topMargin=ui.dp(isRing?Theme.SPACE_8:Theme.SPACE_16);
+            if(builtStacked)dp.bottomMargin=ui.dp(Theme.SPACE_4);
             ui.body.addView(deck,dp);
-            Notice.setBottomOffset(this,20);
         }
 
         forgetCue=ui.type("↓ 下滑标记忘记",Theme.T_CALLOUT);
@@ -342,14 +368,22 @@ public final class ReviewActivity extends ScreenActivity {
 
     private void showGestureGuide(boolean markSeen){
         LinearLayout list=ui.col();
-        guideRow(list,"轻点一次","查看中文释义、例句与相关词");
-        guideRow(list,"再次轻点","标记「记得」并进入下一张");
-        guideRow(list,"向下滑动","标记「忘记」（翻面前后均可）");
-        guideRow(list,"长按卡片","编辑当前单词卡");
-        guideRow(list,"手机返回键","退出本轮复习");
+        if(builtStacked){
+            guideRow(list,"轻点卡片","翻面查看或隐藏释义（不触发评分）");
+            guideRow(list,"向右滑动","标记「记得」并滑出卡片");
+            guideRow(list,"向左滑动","标记「忘记」并在本轮稍后重现");
+            guideRow(list,"底部按钮","随时点击「忘记」或「记得」");
+            guideRow(list,"长按卡片","编辑当前单词卡");
+        }else{
+            guideRow(list,"轻点一次","查看中文释义、例句与相关词");
+            guideRow(list,"再次轻点","标记「记得」并进入下一张");
+            guideRow(list,"向下滑动","标记「忘记」（翻面前后均可）");
+            guideRow(list,"长按卡片","编辑当前单词卡");
+            guideRow(list,"手机返回键","退出本轮复习");
+        }
         Sheet sheet=new Sheet(this)
             .title("背词手势说明")
-            .message("背单词卡片不设按钮，专注看词与手势操作。")
+            .message(builtStacked?"堆叠卡片支持左右滑动与底部按钮评分，轻点仅用于翻看答案。":"背单词卡片不设按钮，专注看词与手势操作。")
             .content(list)
             .primary("知道了",()->{
                 if(markSeen)Store.prefs(this).edit().putBoolean("reviewGestureHintSeen",true).apply();
@@ -394,15 +428,62 @@ public final class ReviewActivity extends ScreenActivity {
         updateSpeakVisibility();
 
         deck.removeAllViews();
-        resetForgetCue();
-        FrameLayout.LayoutParams cueLp=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
-        cueLp.topMargin=builtImmersive?(safeTop+ui.dp(Theme.TOP_BAR+Theme.SPACE_8)):ui.dp(Theme.SPACE_12);
-        deck.addView(forgetCue,cueLp);
-        deck.addView(card,new FrameLayout.LayoutParams(-1,-1));
+        stackLayer1=null;
+        stackLayer2=null;
+        if(builtStacked){
+            int behindCount=Math.min(2,Math.max(0,session.remaining()-1));
+            int stepPx=ui.dp(11);
+            int layerStroke=Theme.HAIRLINE;
+            if(behindCount>=2){
+                View l2=new View(this);
+                l2.setBackground(Theme.shape(this,Theme.SUNK,24,layerStroke,1));
+                l2.setScaleX(0.88f);
+                l2.setAlpha(0.76f);
+                l2.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                FrameLayout.LayoutParams lp2=new FrameLayout.LayoutParams(-1,-1);
+                lp2.topMargin=stepPx*2;
+                deck.addView(l2,lp2);
+                stackLayer2=l2;
+            }
+            if(behindCount>=1){
+                View l1=new View(this);
+                l1.setBackground(Theme.shape(this,Theme.SURFACE,24,layerStroke,1));
+                l1.setScaleX(0.94f);
+                l1.setAlpha(0.94f);
+                l1.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                FrameLayout.LayoutParams lp1=new FrameLayout.LayoutParams(-1,-1);
+                lp1.topMargin=stepPx;
+                lp1.bottomMargin=stepPx;
+                deck.addView(l1,lp1);
+                stackLayer1=l1;
+            }
+            card.setOutlineProvider(new android.view.ViewOutlineProvider(){
+                @Override public void getOutline(View v,android.graphics.Outline outline){
+                    outline.setRoundRect(0,0,v.getWidth(),v.getHeight(),ui.dp(24));
+                }
+            });
+            card.setElevation(ui.dp(3));
+            FrameLayout.LayoutParams topLp=new FrameLayout.LayoutParams(-1,-1);
+            topLp.bottomMargin=stepPx*2;
+            deck.addView(card,topLp);
+            setStackButtonsEnabled(true);
+        }else{
+            resetForgetCue();
+            FrameLayout.LayoutParams cueLp=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+            cueLp.topMargin=builtImmersive?(safeTop+ui.dp(Theme.TOP_BAR+Theme.SPACE_8)):ui.dp(Theme.SPACE_12);
+            deck.addView(forgetCue,cueLp);
+            deck.addView(card,new FrameLayout.LayoutParams(-1,-1));
+        }
         cardView=card;
         if(builtImmersive)applyImmersiveInsets();
 
-        Motion.enter(card,enterFrom);
+        if(!builtStacked){
+            Motion.enter(card,enterFrom);
+        }else if(!fresh&&Motion.enabled(this)){
+            card.setScaleX(0.94f);
+            card.setTranslationY(ui.dp(11));
+            card.animate().scaleX(1f).translationY(0f).setDuration(180).setInterpolator(Motion.EASE_OUT).start();
+        }
         enterFrom=0;
 
         if(revealed)speakWordThenExample(word.optString("english"),currentExample,true);
@@ -435,24 +516,49 @@ public final class ReviewActivity extends ScreenActivity {
     private View buildCard(JSONObject word,boolean zh){
         boolean nightMode=CardStyleStore.isNightMode(this);
         boolean immersive=builtImmersive;
+        boolean stacked=builtStacked;
         int screenH=getResources().getDisplayMetrics().heightPixels;
         int screenW=getResources().getDisplayMetrics().widthPixels;
         float fontScale=getResources().getConfiguration().fontScale;
         boolean landscape=screenW>screenH;
-        boolean compact=landscape||screenH<ui.dp(620)||fontScale>=1.25f;
+        boolean compact=landscape||screenH<ui.dp(620)||fontScale>=1.25f||(stacked&&screenH<ui.dp(720));
 
         CardSurfaceView card=new CardSurfaceView(this,immersive?0:24);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         if(!immersive){
-            int minH=Math.min(ui.dp(420),Math.max(ui.dp(compact?220:300),screenH-ui.dp(compact?148:180)));
+            int minH=Math.min(ui.dp(stacked?360:420),Math.max(ui.dp(compact?200:280),screenH-ui.dp(stacked?(compact?210:250):(compact?148:180))));
             card.setMinimumHeight(minH);
         }
         int padH=ui.dp(compact?Theme.SPACE_20:Theme.SPACE_24);
         int padV=ui.dp(compact?Theme.SPACE_16:Theme.SPACE_24);
         if(immersive)card.setPadding(0,0,0,0);
-        else card.setPadding(padH,padV,padH,padV);
+        else card.setPadding(padH,stacked?ui.dp(Theme.SPACE_12):padV,padH,padV);
         card.applyStyle(cardStyle,nightMode);
         CardSurfaceView.Palette palette=card.palette();
+
+        if(stacked){
+            LinearLayout stampRow=ui.row();
+            stampRow.setPadding(0,0,0,ui.dp(Theme.SPACE_4));
+            rememberStamp=ui.type("记得 →",Theme.T_CAPTION);
+            rememberStamp.setTypeface(Theme.MEDIUM);
+            rememberStamp.setPadding(ui.dp(10),ui.dp(4),ui.dp(10),ui.dp(4));
+            rememberStamp.setTextColor(Theme.ACCENT_TEXT);
+            rememberStamp.setBackground(Theme.shape(this,Theme.PRIMARY_SOFT,12,Theme.PRIMARY,1));
+            rememberStamp.setAlpha(0f);
+            stampRow.addView(rememberStamp,new LinearLayout.LayoutParams(-2,-2));
+            stampRow.addView(new View(this),new LinearLayout.LayoutParams(0,1,1));
+            forgetStamp=ui.type("← 忘记",Theme.T_CAPTION);
+            forgetStamp.setTypeface(Theme.MEDIUM);
+            forgetStamp.setPadding(ui.dp(10),ui.dp(4),ui.dp(10),ui.dp(4));
+            forgetStamp.setTextColor(Theme.DANGER);
+            forgetStamp.setBackground(Theme.shape(this,Theme.DANGER_SOFT,12,Theme.DANGER,1));
+            forgetStamp.setAlpha(0f);
+            stampRow.addView(forgetStamp,new LinearLayout.LayoutParams(-2,-2));
+            card.addView(stampRow,WordUi.lp());
+        }else{
+            rememberStamp=null;
+            forgetStamp=null;
+        }
 
         if(immersive){
             WordUi.edgeToEdgeSystemBars(this,palette.darkSurface);
@@ -672,8 +778,207 @@ public final class ReviewActivity extends ScreenActivity {
         back.setVisibility(answerState);
         sentence.setVisibility(currentExample.isEmpty()?View.GONE:answerState);
         masteryRow.setVisibility(answerState);
-        bindCard(card,palette.ripple,immersive?0:24);
+        if(stacked)bindStackedCard(card,palette.ripple);
+        else bindCard(card,palette.ripple,immersive?0:24);
         return card;
+    }
+
+    private void setStackButtonsEnabled(boolean enabled){
+        if(stackForgetBtn!=null)stackForgetBtn.setEnabled(enabled);
+        if(stackRememberBtn!=null)stackRememberBtn.setEnabled(enabled);
+    }
+
+    /**
+     * Stacked card physics & gesture separation:
+     *   - Tap card body: flip / toggle answer visibility ONLY (never scores)
+     *   - Drag right: live follow + subtle rotation + “记得 →” stamp; commits above threshold/velocity
+     *   - Drag left: live follow + subtle rotation + “← 忘记” stamp; commits above threshold/velocity
+     *   - Release below threshold: elastic rebound back to rest & settle underlying stack layers
+     *   - Long-press: open word editor (cancelled immediately on drag)
+     */
+    private void bindStackedCard(View card,int rippleColor){
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setLongClickable(false);
+        card.setForeground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(rippleColor),null,Theme.shape(this,Color.WHITE,24)));
+        final int slop=ViewConfiguration.get(this).getScaledTouchSlop();
+        final int timeout=ViewConfiguration.getLongPressTimeout();
+        final float dragThreshold=ui.dp(96);
+        final float flingDistance=ui.dp(44);
+        final float flingVelocity=ui.dp(620);
+        final float[] down=new float[2];
+        final boolean[] held={false},dragging={false};
+        final int[] crossedDir={0};
+        final VelocityTracker[] tracker={null};
+
+        final Runnable longPress=()->{
+            held[0]=true;
+            card.setPressed(false);
+            card.animate().cancel();
+            card.setScaleX(1f);
+            card.setScaleY(1f);
+            if(changing||currentWord==null||!card.isAttachedToWindow())return;
+            if(Store.prefs(this).getBoolean("haptic",true))card.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            edit(currentWord);
+        };
+
+        card.setOnTouchListener((view,event)->{
+            int action=event.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN){
+                held[0]=false;
+                dragging[0]=false;
+                crossedDir[0]=0;
+                down[0]=event.getRawX();
+                down[1]=event.getRawY();
+                if(tracker[0]!=null)tracker[0].recycle();
+                tracker[0]=VelocityTracker.obtain();
+                tracker[0].addMovement(event);
+                card.removeCallbacks(longPress);
+                if(!changing)Feedback.press(view);
+                card.postDelayed(longPress,timeout);
+                return false;
+            }
+            if(tracker[0]!=null)tracker[0].addMovement(event);
+
+            if(action==MotionEvent.ACTION_MOVE){
+                float dx=event.getRawX()-down[0];
+                float dy=event.getRawY()-down[1];
+                if(Math.hypot(dx,dy)>slop)card.removeCallbacks(longPress);
+                if(!dragging[0]&&!held[0]&&!changing&&Math.abs(dx)>slop*1.15f&&Math.abs(dx)>=Math.abs(dy)*1.05f){
+                    dragging[0]=true;
+                    view.setPressed(false);
+                    Feedback.releasePress(view);
+                    view.animate().cancel();
+                    if(view.getParent()!=null)view.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                if(dragging[0]){
+                    float width=Math.max(1f,view.getWidth());
+                    view.setTranslationX(dx);
+                    view.setTranslationY(Math.abs(dx)*0.05f);
+                    if(Motion.enabled(view.getContext())){
+                        float rot=Math.max(-9.5f,Math.min(9.5f,(dx/width)*9.5f));
+                        view.setRotation(rot);
+                    }else{
+                        view.setRotation(0f);
+                    }
+                    float ratio=Math.min(1f,Math.abs(dx)/dragThreshold);
+                    promoteStackLayers(ratio);
+                    int nextCrossed=Math.abs(dx)>=dragThreshold?(dx>0?1:-1):0;
+                    if(nextCrossed!=crossedDir[0]){
+                        crossedDir[0]=nextCrossed;
+                        if(nextCrossed!=0)Feedback.tick(view);
+                    }
+                    updateStackedStamps(dx,dragThreshold,nextCrossed);
+                    return true;
+                }
+                return false;
+            }
+
+            if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+                card.removeCallbacks(longPress);
+                Feedback.releasePress(view);
+                float dx=event.getRawX()-down[0];
+                float vx=0f;
+                if(tracker[0]!=null){
+                    tracker[0].computeCurrentVelocity(1000);
+                    vx=tracker[0].getXVelocity();
+                    tracker[0].recycle();
+                    tracker[0]=null;
+                }
+                if(dragging[0]){
+                    dragging[0]=false;
+                    boolean velCommit=Math.abs(dx)>=flingDistance&&Math.abs(vx)>=flingVelocity&&(dx*vx>0f);
+                    boolean commit=action==MotionEvent.ACTION_UP&&!changing&&(Math.abs(dx)>=dragThreshold||velCommit);
+                    if(commit){
+                        boolean known=dx>0f;
+                        answer(known,session.answered(),view,true);
+                    }else{
+                        reboundStackedCard(view);
+                    }
+                    return true;
+                }
+                if(held[0])view.setPressed(false);
+                return held[0];
+            }
+            return false;
+        });
+
+        card.setOnClickListener(v->{
+            if(changing||currentWord==null)return;
+            if(!revealed)revealAnswer(v);
+            else hideAnswer();
+        });
+    }
+
+    private void promoteStackLayers(float ratio){
+        float r=Math.max(0f,Math.min(1f,ratio));
+        int stepPx=ui.dp(11);
+        if(stackLayer1!=null){
+            stackLayer1.setScaleX(0.94f+0.06f*r);
+            stackLayer1.setTranslationY(-stepPx*r);
+            stackLayer1.setAlpha(0.94f+0.06f*r);
+        }
+        if(stackLayer2!=null){
+            stackLayer2.setScaleX(0.88f+0.06f*r);
+            stackLayer2.setTranslationY(-stepPx*r);
+            stackLayer2.setAlpha(0.76f+0.18f*r);
+        }
+    }
+
+    private void updateStackedStamps(float dx,float threshold,int crossed){
+        if(rememberStamp!=null){
+            float a=dx>0f?Math.min(1f,dx/(threshold*0.65f)):0f;
+            rememberStamp.setAlpha(a);
+            if(crossed>0){
+                rememberStamp.setTextColor(Theme.ON_PRIMARY);
+                rememberStamp.setBackground(Theme.shape(this,Theme.PRIMARY,12));
+            }else{
+                rememberStamp.setTextColor(Theme.ACCENT_TEXT);
+                rememberStamp.setBackground(Theme.shape(this,Theme.PRIMARY_SOFT,12,Theme.PRIMARY,1));
+            }
+        }
+        if(forgetStamp!=null){
+            float a=dx<0f?Math.min(1f,-dx/(threshold*0.65f)):0f;
+            forgetStamp.setAlpha(a);
+            if(crossed<0){
+                forgetStamp.setTextColor(Theme.ON_PRIMARY);
+                forgetStamp.setBackground(Theme.shape(this,Theme.DANGER,12));
+            }else{
+                forgetStamp.setTextColor(Theme.DANGER);
+                forgetStamp.setBackground(Theme.shape(this,Theme.DANGER_SOFT,12,Theme.DANGER,1));
+            }
+        }
+    }
+
+    private void reboundStackedCard(View view){
+        if(rememberStamp!=null)rememberStamp.setAlpha(0f);
+        if(forgetStamp!=null)forgetStamp.setAlpha(0f);
+        if(Motion.enabled(this)){
+            view.animate().translationX(0f).translationY(0f).rotation(0f).scaleX(1f).scaleY(1f)
+                .setStartDelay(0).setDuration(220)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(1.05f)).start();
+            if(stackLayer1!=null)stackLayer1.animate().scaleX(0.94f).translationY(0f).alpha(0.94f).setDuration(200).start();
+            if(stackLayer2!=null)stackLayer2.animate().scaleX(0.88f).translationY(0f).alpha(0.76f).setDuration(200).start();
+        }else{
+            view.setTranslationX(0f);
+            view.setTranslationY(0f);
+            view.setRotation(0f);
+            view.setScaleX(1f);
+            view.setScaleY(1f);
+            promoteStackLayers(0f);
+        }
+    }
+
+    private void hideAnswer(){
+        if(!revealed||changing)return;
+        revealed=false;
+        updateSpeakVisibility();
+        if(hairline!=null)hairline.setVisibility(View.INVISIBLE);
+        if(back!=null)back.setVisibility(View.INVISIBLE);
+        if(sentence!=null&&!currentExample.isEmpty())sentence.setVisibility(View.INVISIBLE);
+        if(categoryTag!=null&&categoryTag.getVisibility()!=View.GONE)categoryTag.setVisibility(View.INVISIBLE);
+        if(masteryRow!=null)masteryRow.setVisibility(View.INVISIBLE);
+        if(relationsRow!=null&&relationsRow.getVisibility()!=View.GONE)relationsRow.setVisibility(View.INVISIBLE);
     }
 
     /** 48dp accessible icon button integrated directly into immersive card chrome without conflicting with card gestures. */
@@ -880,9 +1185,9 @@ public final class ReviewActivity extends ScreenActivity {
         speakWordThenExample(currentWord.optString("english"),currentExample,true);
     }
 
-    private void answer(boolean known,int expected,View source,boolean swipeDown){
+    private void answer(boolean known,int expected,View source,boolean fromSwipe){
         if(changing||session.ended()||session.answered()!=expected)return;
-        if(known&&!revealed)return;
+        if(known&&!revealed&&!builtStacked)return;
         boolean firstAttempt=session.attemptsForCurrent()==0;
         JSONObject word=words.optJSONObject(session.current());
         long sourceTask=word==null?id:word.optLong("_taskId",id);
@@ -893,7 +1198,9 @@ public final class ReviewActivity extends ScreenActivity {
             if(!practice&&sourceTask>0)Mastery.applyAnswer(this,sourceTask,sourceIndex,known,firstAttempt,words,wordId);
         }catch(Exception e){
             ui.error("结果保存失败，尚未提交本题："+e.getMessage());
-            if(swipeDown&&cardView!=null){
+            if(builtStacked&&cardView!=null){
+                reboundStackedCard(cardView);
+            }else if(fromSwipe&&cardView!=null){
                 cardView.animate().translationY(0).scaleX(1).scaleY(1).setDuration(180).start();
                 resetForgetCue();
             }
@@ -901,20 +1208,37 @@ public final class ReviewActivity extends ScreenActivity {
         }
         interaction.respond(source,known?Feedback.KNOWN:Feedback.RETRY);
         changing=true;
+        setStackButtonsEnabled(false);
         if(speech!=null)speech.stop();
         session.answer(known);
         answers.append(known?'1':'0');
         revealed=false;
 
-        progress.set(session.answered()/(float)session.total(),true);
-        if(!session.ended())counter.setText(counterText());
+        if(progress!=null)progress.setStep(session.answered(),session.total(),true);
+        if(!session.ended()&&counter!=null)counter.setText(counterText());
 
         Runnable next=()->{
             if(isFinishing()||isDestroyed())return;
             changing=false;
             show();
         };
-        if(swipeDown){
+        if(builtStacked){
+            if(!Motion.enabled(this)||cardView==null){
+                next.run();
+                return;
+            }
+            float w=Math.max(ui.dp(320),cardView.getWidth());
+            float targetX=known?w*1.25f:-w*1.25f;
+            float targetRot=known?14f:-14f;
+            updateStackedStamps(known?ui.dp(120):-ui.dp(120),ui.dp(96),known?1:-1);
+            if(stackLayer1!=null)stackLayer1.animate().scaleX(1f).scaleY(1f).translationY(0f).alpha(1f).setDuration(180).start();
+            if(stackLayer2!=null)stackLayer2.animate().scaleX(0.95f).scaleY(0.98f).translationY(ui.dp(10)).alpha(0.84f).setDuration(180).start();
+            cardView.animate().translationX(targetX).rotation(targetRot).alpha(0f)
+                .setStartDelay(0).setDuration(180).setInterpolator(Motion.EASE)
+                .withEndAction(next).start();
+            return;
+        }
+        if(fromSwipe){
             enterFrom=0;
             Motion.leaveDown(cardView,next);
         }else{
@@ -933,7 +1257,7 @@ public final class ReviewActivity extends ScreenActivity {
             .item(R.drawable.ic_pen_line,"编辑这张卡","修改英文、中文、类别或例句",()->edit(word))
             .item(R.drawable.ic_layers,"相关词","近义、扩、同根、反义与关系图",()->openRelations(word))
             .item(R.drawable.ic_sparkles,"卡片外观",cardStyle.summary(),()->Motion.open(this,new Intent(this,CardStyleActivity.class)))
-            .item(R.drawable.ic_circle_alert,"手势说明","轻点翻面 / 记得，下滑忘记，长按编辑",()->showGestureGuide(false));
+            .item(R.drawable.ic_circle_alert,"手势说明",builtStacked?"轻点翻面查看，右滑记得，左滑忘记，长按编辑":"轻点翻面 / 记得，下滑忘记，长按编辑",()->showGestureGuide(false));
         if(ConnectionImages.exists(this,word.optString("connectionImage")))sheet.item(R.drawable.ic_images,"查看附带图片",()->Motion.open(this,new Intent(this,ConnectionImageActivity.class).putExtra("path",word.optString("connectionImage")).putExtra("english",word.optString("english"))));
         sheet.show();
     }
@@ -1056,8 +1380,15 @@ public final class ReviewActivity extends ScreenActivity {
     private void summary(){
         sessionChrome=false;
         builtImmersive=false;
+        builtStacked=false;
         immersiveTopChrome=null;
         immersiveBottomHost=null;
+        stackLayer1=null;
+        stackLayer2=null;
+        rememberStamp=null;
+        forgetStamp=null;
+        stackForgetBtn=null;
+        stackRememberBtn=null;
         cardView=null;
         speakTop=null;
         ui.startModal(practice?"任意复习":taskTitle);

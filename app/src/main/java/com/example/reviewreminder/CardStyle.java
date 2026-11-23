@@ -9,6 +9,7 @@ import java.util.Locale;
  */
 public final class CardStyle {
     public static final String LAYOUT_CLASSIC = "classic";
+    public static final String LAYOUT_STACKED = "stacked";
     public static final String LAYOUT_IMMERSIVE = "immersive";
 
     public static final String PROGRESS_LINE = "line";
@@ -197,6 +198,10 @@ public final class CardStyle {
         return LAYOUT_IMMERSIVE.equals(layoutMode);
     }
 
+    public boolean isStackedLayout() {
+        return LAYOUT_STACKED.equals(layoutMode);
+    }
+
     /**
      * Explicit priority rule for background appearance under global theme switching:
      * 1) User photo (always dark surface with legibility scrim)
@@ -229,7 +234,10 @@ public final class CardStyle {
     }
 
     public static String layoutLabel(String mode) {
-        return LAYOUT_IMMERSIVE.equals(normalizeLayoutMode(mode)) ? "全屏沉浸" : "经典留边";
+        String norm = normalizeLayoutMode(mode);
+        if (LAYOUT_IMMERSIVE.equals(norm)) return "全屏沉浸";
+        if (LAYOUT_STACKED.equals(norm)) return "堆叠卡片";
+        return "经典留边";
     }
 
     public static String progressLabel(String style) {
@@ -352,7 +360,8 @@ public final class CardStyle {
     }
 
     public static String normalizeLayoutMode(String mode) {
-        return LAYOUT_IMMERSIVE.equals(mode) ? LAYOUT_IMMERSIVE : LAYOUT_CLASSIC;
+        if (LAYOUT_IMMERSIVE.equals(mode) || LAYOUT_STACKED.equals(mode)) return mode;
+        return LAYOUT_CLASSIC;
     }
 
     public static String normalizeProgressStyle(String style) {

@@ -77,8 +77,11 @@ public final class CardStyleTest {
         check(CardStyle.LAYOUT_CLASSIC.equals(def.layoutMode) && !def.isImmersiveLayout(), "default layout is classic framed");
         check(CardStyle.PROGRESS_LINE.equals(def.progressStyle), "default progress style is restrained line");
         CardStyle immersiveSeg = def.withLayoutMode(CardStyle.LAYOUT_IMMERSIVE).withProgressStyle(CardStyle.PROGRESS_SEGMENTS);
-        check(immersiveSeg.isImmersiveLayout() && CardStyle.PROGRESS_SEGMENTS.equals(immersiveSeg.progressStyle), "immersive + segments set");
+        check(immersiveSeg.isImmersiveLayout() && !immersiveSeg.isStackedLayout() && CardStyle.PROGRESS_SEGMENTS.equals(immersiveSeg.progressStyle), "immersive + segments set");
         check(!immersiveSeg.isDefault(), "immersive layout is non-default");
+        CardStyle stackedStyle = def.withLayoutMode(CardStyle.LAYOUT_STACKED).withProgressStyle(CardStyle.PROGRESS_SEGMENTS);
+        check(stackedStyle.isStackedLayout() && !stackedStyle.isImmersiveLayout() && "堆叠卡片".equals(CardStyle.layoutLabel(stackedStyle.layoutMode)), "stacked layout supported and labeled");
+        check(!stackedStyle.isDefault() && stackedStyle.equals(CardStyle.fromJsonString(stackedStyle.toJson().toString())), "stacked layout round-trips cleanly");
         CardStyle ringStyle = def.withProgressStyle(CardStyle.PROGRESS_RING);
         check(CardStyle.PROGRESS_RING.equals(ringStyle.progressStyle), "ring progress style preserved");
         check(CardStyle.LAYOUT_CLASSIC.equals(def.withLayoutMode("invalid").layoutMode), "invalid layout normalizes to classic");

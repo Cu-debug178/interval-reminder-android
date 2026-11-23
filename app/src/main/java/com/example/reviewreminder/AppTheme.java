@@ -16,6 +16,55 @@ public final class AppTheme {
     public static final String NIGHT_LIGHT = "light";
     public static final String NIGHT_DARK = "dark";
 
+    public static final String PRESET_CLASSIC_PAPER = "classic_paper";
+    public static final String PRESET_STACKED_DECK = "stacked_deck";
+    public static final String PRESET_QUIET_IMMERSIVE = "quiet_immersive";
+
+    public static final class DesignPreset {
+        public final String id, label, summary, styleId, layoutMode, progressStyle;
+        DesignPreset(String id, String label, String summary, String styleId, String layoutMode, String progressStyle) {
+            this.id = id;
+            this.label = label;
+            this.summary = summary;
+            this.styleId = styleId;
+            this.layoutMode = layoutMode;
+            this.progressStyle = progressStyle;
+        }
+    }
+
+    /**
+     * Three meaningfully distinct complete in-app design presets.
+     * Applying a preset updates visual style, card layout, and progress indicator coherently while
+     * preserving the user's orthogonal night-mode policy, custom card backgrounds/quotes/patterns,
+     * learning history, and voice settings.
+     */
+    public static final DesignPreset[] PRESETS = {
+        new DesignPreset(
+            PRESET_CLASSIC_PAPER,
+            "纸墨经典",
+            "纸墨清爽 · 经典留边 · 克制细线",
+            STYLE_PAPER_INK,
+            CardStyle.LAYOUT_CLASSIC,
+            CardStyle.PROGRESS_LINE
+        ),
+        new DesignPreset(
+            PRESET_STACKED_DECK,
+            "松林叠卡",
+            "柔和护眼 · 堆叠卡片（右记/左忘）· 分段刻度",
+            STYLE_SOFT_EYE,
+            CardStyle.LAYOUT_STACKED,
+            CardStyle.PROGRESS_SEGMENTS
+        ),
+        new DesignPreset(
+            PRESET_QUIET_IMMERSIVE,
+            "静谧全屏",
+            "静谧青灰 · 全屏沉浸 · 紧凑环形",
+            STYLE_SLATE_MIST,
+            CardStyle.LAYOUT_IMMERSIVE,
+            CardStyle.PROGRESS_RING
+        )
+    };
+
     public static final class StyleOption {
         public final String id, label, detail;
         public final int lightPreviewBg, lightPreviewAccent, darkPreviewBg, darkPreviewAccent;
@@ -170,6 +219,40 @@ public final class AppTheme {
             if (opt.id.equals(norm)) return opt;
         }
         return STYLES[0];
+    }
+
+    public static DesignPreset findPreset(String id) {
+        if (id != null) {
+            for (DesignPreset p : PRESETS) {
+                if (p.id.equals(id)) return p;
+            }
+        }
+        return PRESETS[0];
+    }
+
+    /** Returns the active complete preset ID if theme + card layout/progress match one, or "". */
+    public static String matchingPreset(AppTheme theme, CardStyle card) {
+        AppTheme t = theme == null ? defaults() : theme;
+        CardStyle c = card == null ? CardStyle.defaults() : card;
+        for (DesignPreset p : PRESETS) {
+            if (p.styleId.equals(t.style) && p.layoutMode.equals(c.layoutMode) && p.progressStyle.equals(c.progressStyle)) {
+                return p.id;
+            }
+        }
+        return "";
+    }
+
+    /** Applies a complete preset to AppTheme while keeping the user's nightMode untouched. */
+    public AppTheme applyPreset(String presetId) {
+        DesignPreset p = findPreset(presetId);
+        return withStyle(p.styleId);
+    }
+
+    /** Applies a complete preset's layout & progress to CardStyle while preserving all custom backgrounds/quotes/patterns/images. */
+    public static CardStyle applyPresetToCard(CardStyle current, String presetId) {
+        CardStyle base = current == null ? CardStyle.defaults() : current;
+        DesignPreset p = findPreset(presetId);
+        return base.withLayoutMode(p.layoutMode).withProgressStyle(p.progressStyle);
     }
 
     public static String nightLabel(String mode) {

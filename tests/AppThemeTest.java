@@ -83,6 +83,44 @@ public final class AppThemeTest {
         CardStyle photoCard = CardStyle.defaults().withBackgroundImage("bg_sample.jpg");
         check(photoCard.isDarkSurface(lightForced.resolveDark(false)), "photo card preserves dark legibility surface under global light mode");
 
+        // 5. Complete in-app design presets preserve nightMode and custom card media/quotes/patterns
+        check(AppTheme.PRESETS.length == 3, "exposes 3 distinct complete design presets");
+        check(AppTheme.PRESET_CLASSIC_PAPER.equals(AppTheme.matchingPreset(AppTheme.defaults(), CardStyle.defaults())),
+            "default theme + card matches classic_paper preset");
+        CardStyle customPhotoQuote = CardStyle.defaults()
+            .withBackgroundImage("bg_user123.jpg")
+            .withImageCrop(CardStyle.CROP_TOP)
+            .withOverlayAlpha(55)
+            .withBottomQuote("保持每天一小步", "笔记");
+        AppTheme darkCustom = AppTheme.defaults().withNightMode(AppTheme.NIGHT_DARK);
+
+        AppTheme afterStackedTheme = darkCustom.applyPreset(AppTheme.PRESET_STACKED_DECK);
+        CardStyle afterStackedCard = AppTheme.applyPresetToCard(customPhotoQuote, AppTheme.PRESET_STACKED_DECK);
+        check(AppTheme.STYLE_SOFT_EYE.equals(afterStackedTheme.style) && AppTheme.NIGHT_DARK.equals(afterStackedTheme.nightMode),
+            "applying stacked_deck preset updates visual style while preserving nightMode");
+        check(afterStackedCard.isStackedLayout() && CardStyle.PROGRESS_SEGMENTS.equals(afterStackedCard.progressStyle),
+            "applying stacked_deck preset sets stacked layout and segmented progress");
+        check(CardStyle.BG_IMAGE.equals(afterStackedCard.backgroundMode)
+            && "bg_user123.jpg".equals(afterStackedCard.backgroundImage)
+            && CardStyle.CROP_TOP.equals(afterStackedCard.imageCrop)
+            && afterStackedCard.overlayAlpha == 55
+            && CardStyle.BOTTOM_QUOTE.equals(afterStackedCard.bottomMode)
+            && "保持每天一小步".equals(afterStackedCard.quoteText)
+            && "笔记".equals(afterStackedCard.quoteCredit),
+            "applying stacked_deck preset preserves user photo, crop, overlay, and quote");
+        check(AppTheme.PRESET_STACKED_DECK.equals(AppTheme.matchingPreset(afterStackedTheme, afterStackedCard)),
+            "matchingPreset detects stacked_deck even when user keeps custom photo/quote");
+
+        AppTheme afterImmersiveTheme = afterStackedTheme.applyPreset(AppTheme.PRESET_QUIET_IMMERSIVE);
+        CardStyle afterImmersiveCard = AppTheme.applyPresetToCard(afterStackedCard, AppTheme.PRESET_QUIET_IMMERSIVE);
+        check(AppTheme.STYLE_SLATE_MIST.equals(afterImmersiveTheme.style)
+            && AppTheme.NIGHT_DARK.equals(afterImmersiveTheme.nightMode)
+            && afterImmersiveCard.isImmersiveLayout()
+            && CardStyle.PROGRESS_RING.equals(afterImmersiveCard.progressStyle)
+            && "bg_user123.jpg".equals(afterImmersiveCard.backgroundImage)
+            && "保持每天一小步".equals(afterImmersiveCard.quoteText),
+            "switching stacked_deck -> quiet_immersive preserves nightMode and custom photo/quote");
+
         System.out.println("AppThemeTest: " + checks + " checks passed");
     }
 }

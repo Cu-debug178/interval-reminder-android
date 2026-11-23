@@ -103,13 +103,16 @@ public final class CardStyleActivity extends ScreenActivity {
 
         // ── Layout & progress style section ───────────────────────────────────
         ui.section(ui.body, "卡片布局", null);
-        Segmented layoutSeg = ui.segmented(new String[]{"经典留边", "全屏沉浸"},
-            draft.isImmersiveLayout() ? 1 : 0, index -> {
-                draft = draft.withLayoutMode(index == 1 ? CardStyle.LAYOUT_IMMERSIVE : CardStyle.LAYOUT_CLASSIC);
+        int layoutIdx = layoutModeIndex(draft.layoutMode);
+        Segmented layoutSeg = ui.segmented(new String[]{"经典留边", "堆叠卡片", "全屏沉浸"},
+            layoutIdx, index -> {
+                String nextLayout = index == 1 ? CardStyle.LAYOUT_STACKED
+                    : (index == 2 ? CardStyle.LAYOUT_IMMERSIVE : CardStyle.LAYOUT_CLASSIC);
+                draft = draft.withLayoutMode(nextLayout);
                 renderPreview();
             });
         ui.body.addView(layoutSeg, WordUi.lp());
-        ui.note(ui.body, "经典留边保留既有卡片留白；全屏沉浸铺满屏幕并自动避让状态栏与手势导航条。");
+        ui.note(ui.body, "经典留边保留既有卡片留白；堆叠卡片呈现多层景深，支持右滑记住、左滑忘记与底部评分按钮；全屏沉浸铺满屏幕并避让状态栏与导航条。");
 
         ui.section(ui.body, "批次进度样式", null);
         int progIdx = progressStyleIndex(draft.progressStyle);
@@ -198,6 +201,7 @@ public final class CardStyleActivity extends ScreenActivity {
         previewHost.removeAllViews();
 
         boolean immersive = draft.isImmersiveLayout();
+        boolean stacked = draft.isStackedLayout();
         boolean isRing = CardStyle.PROGRESS_RING.equals(draft.progressStyle);
 
         LinearLayout stage = ui.col();
@@ -239,7 +243,7 @@ public final class CardStyleActivity extends ScreenActivity {
             rlp.leftMargin = ui.dp(6);
             previewTop.addView(previewProg, rlp);
         }
-        previewTop.addView(new View(this), WordUi.weight());
+        previewTop.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
 
         int iconTint = immersive ? palette.inkSecondary : (previewDark ? 0xFFC5CBC7 : Theme.INK_2);
         ImageView spIcon = ui.icon(R.drawable.ic_volume_2, iconTint);
@@ -323,7 +327,56 @@ public final class CardStyleActivity extends ScreenActivity {
         card.addView(center, new LinearLayout.LayoutParams(-1, 0, 1));
         CardSurfaceView.attachBottomSlot(this, card, draft, palette, compact);
 
-        stage.addView(card, WordUi.lp());
+        if (stacked) {
+            android.widget.FrameLayout stackFrame = new android.widget.FrameLayout(this);
+            stackFrame.setClipChildren(false);
+            int stepPx = ui.dp(9);
+            int layer1Bg = previewDark ? 0xFF232B28 : Theme.SURFACE;
+            int layer2Bg = previewDark ? 0xFF1A211F : Theme.SUNK;
+            int layerStroke = previewDark ? 0xFF333F3A : Theme.HAIRLINE;
+            View back2 = new View(this);
+            back2.setBackground(Theme.shape(this, layer2Bg, 18, layerStroke, 1));
+            back2.setScaleX(0.88f);
+            back2.setAlpha(0.76f);
+            android.widget.FrameLayout.LayoutParams lp2 = new android.widget.FrameLayout.LayoutParams(-1, -1);
+            lp2.topMargin = stepPx * 2;
+            stackFrame.addView(back2, lp2);
+
+            View back1 = new View(this);
+            back1.setBackground(Theme.shape(this, layer1Bg, 18, layerStroke, 1));
+            back1.setScaleX(0.94f);
+            back1.setAlpha(0.94f);
+            android.widget.FrameLayout.LayoutParams lp1 = new android.widget.FrameLayout.LayoutParams(-1, -1);
+            lp1.topMargin = stepPx;
+            lp1.bottomMargin = stepPx;
+            stackFrame.addView(back1, lp1);
+
+            android.widget.FrameLayout.LayoutParams cardLp = new android.widget.FrameLayout.LayoutParams(-1, -2);
+            cardLp.bottomMargin = stepPx * 2;
+            stackFrame.addView(card, cardLp);
+            stage.addView(stackFrame, WordUi.lp());
+
+            // Preview accessible fallback scoring row (忘记 / 记得; no fake undo)
+            LinearLayout scorePreview = ui.row();
+            TextView fTag = ui.type("← 忘记", Theme.T_CAPTION);
+            fTag.setGravity(Gravity.CENTER);
+            fTag.setTextColor(Theme.DANGER);
+            fTag.setBackground(Theme.shape(this, previewDark ? 0xFF3B241E : Theme.DANGER_SOFT, 10));
+            fTag.setPadding(0, ui.dp(8), 0, ui.dp(8));
+            LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(0, -2, 1);
+            flp.rightMargin = ui.dp(8);
+            scorePreview.addView(fTag, flp);
+
+            TextView rTag = ui.type("记得 →", Theme.T_CAPTION);
+            rTag.setGravity(Gravity.CENTER);
+            rTag.setTextColor(Theme.ON_PRIMARY);
+            rTag.setBackground(Theme.shape(this, Theme.PRIMARY, 10));
+            rTag.setPadding(0, ui.dp(8), 0, ui.dp(8));
+            scorePreview.addView(rTag, new LinearLayout.LayoutParams(0, -2, 1));
+            stage.addView(scorePreview, ui.lpMargin(Theme.SPACE_12, 0));
+        } else {
+            stage.addView(card, WordUi.lp());
+        }
         previewHost.addView(stage, WordUi.lp());
     }
 
@@ -731,6 +784,12 @@ public final class CardStyleActivity extends ScreenActivity {
         cleanupUnsavedSessionImages();
         worker.shutdownNow();
         super.onDestroy();
+    }
+
+    private static int layoutModeIndex(String mode) {
+        if (CardStyle.LAYOUT_STACKED.equals(mode)) return 1;
+        if (CardStyle.LAYOUT_IMMERSIVE.equals(mode)) return 2;
+        return 0;
     }
 
     private static int progressStyleIndex(String style) {
